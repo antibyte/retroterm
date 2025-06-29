@@ -31,6 +31,9 @@ Basic has some sound, sprite, graphics and vectorgraphics commands
 ![image](https://github.com/user-attachments/assets/84e83545-2279-4c02-ae91-28d1af87641e)
 ![image](https://github.com/user-attachments/assets/fe8ac0b8-f585-46a3-978a-0a4c493adf55)
 ![image](https://github.com/user-attachments/assets/82c6d115-a936-4b19-9e87-ff0e51ac1415)
+![image](https://github.com/user-attachments/assets/08d1884a-a5ed-4ecd-8066-a314a0c24bd6)
+![image](https://github.com/user-attachments/assets/14d0e7d7-3c4d-47ac-8ac3-235bc0440557)
+
 
 
 
