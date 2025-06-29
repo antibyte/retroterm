@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication Tests - TinyOS Security Testing Interface</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="TinyOS Authentication Testing Interface - Interactive tool for testing login security, JWT tokens, session management and authentication workflows.">
+    <meta name="keywords" content="authentication testing, security testing, JWT tokens, login testing, session management, TinyOS, web security">
+    <meta name="author" content="TinyOS Security Team">
+    <meta name="robots" content="noindex, nofollow">
+    
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:title" content="Authentication Tests - TinyOS Security Testing">
+    <meta property="og:description" content="Interactive authentication testing interface for TinyOS security validation">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="TinyOS">
+    
+    <!-- Technical Meta Tags -->
+    <meta name="theme-color" content="#00ff00">
+    <meta name="application-name" content="TinyOS Auth Tests">
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background: #000;
+            color: #0f0;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #0f0;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            background: #111;
+            border: 1px solid #0f0;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 5px;
+        }
+        button {
+            background: #0f0;
+            color: #000;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: inherit;
+            font-weight: bold;
+            margin: 5px;
+        }
+        button:hover {
+            background: #fff;
+        }
+        #console {
+            background: #222;
+            border: 1px solid #0f0;
+            padding: 15px;
+            min-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .pass { color: #0f0; }
+        .fail { color: #f00; }
+        .info { color: #ff0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>TinyOS Authentication System Tests</h1>
+        
+        <div class="test-section">
+            <h2>Frontend Authentication Tests</h2>
+            <p>Test the JWT authentication system in the browser.</p>
+            <button onclick="runAuthTests()">Run Auth Tests</button>
+            <button onclick="clearConsole()">Clear Console</button>
+            <button onclick="testRealAPI()">Test Real API</button>
+        </div>
+
+        <div class="test-section">
+            <h2>Console Output</h2>
+            <div id="console"></div>
+        </div>
+    </div>
+
+    <!-- Load the authentication system -->
+    <script src="js/auth.js"></script>
+    <script src="js/auth_test.js"></script>
+
+    <script>
+        // Redirect console output to our custom console
+        const consoleDiv = document.getElementById('console');
+        const originalConsole = { ...console };
+
+        function logToConsole(type, ...args) {
+            const message = args.map(arg => 
+                typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+            ).join(' ');
+            
+            const timestamp = new Date().toLocaleTimeString();
+            const line = `[${timestamp}] ${type.toUpperCase()}: ${message}\n`;
+            
+            consoleDiv.innerHTML += `<span class="${type}">${line}</span>`;
+            consoleDiv.scrollTop = consoleDiv.scrollHeight;
+            
+            // Also log to real console
+            originalConsole[type](...args);
+        }
+
+        console.log = (...args) => logToConsole('info', ...args);
+        console.error = (...args) => logToConsole('fail', ...args);
+        console.warn = (...args) => logToConsole('info', ...args);
+
+        function clearConsole() {
+            consoleDiv.innerHTML = '';
+        }
+
+        async function runAuthTests() {
+            clearConsole();
+            console.log('Starting Authentication Tests...');
+            console.log('='.repeat(50));
+            
+            try {
+                if (typeof authTests !== 'undefined') {
+                    const results = await authTests.runTests();
+                    console.log('='.repeat(50));
+                    console.log(`Test Results: ${results.passed} passed, ${results.failed} failed`);
+                    
+                    if (results.failed === 0) {
+                        console.log('🎉 All tests passed!');
+                    } else {
+                        console.error(`❌ ${results.failed} test(s) failed`);
+                    }
+                } else {
+                    console.error('Auth tests not loaded');
+                }
+            } catch (error) {
+                console.error('Error running tests:', error);
+            }
+        }
+
+        async function testRealAPI() {
+            clearConsole();
+            console.log('Testing Real API Endpoints...');
+            console.log('='.repeat(50));
+            
+            try {
+                // Test session creation
+                console.log('Testing session creation...');
+                const sessionResponse = await fetch('/api/auth/session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({})
+                });
+                const sessionData = await sessionResponse.json();
+                console.log('Session creation result:', sessionData);
+                
+                if (sessionData.success) {
+                    // Test login
+                    console.log('Testing login with session ID...');
+                    const loginResponse = await fetch('/api/auth/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        credentials: 'include',
+                        body: JSON.stringify({ sessionId: sessionData.sessionId })
+                    });
+                    const loginData = await loginResponse.json();
+                    console.log('Login result:', loginData);
+                    
+                    if (loginData.success) {
+                        // Test token validation
+                        console.log('Testing token validation...');
+                        const validateResponse = await fetch('/api/auth/validate', {
+                            method: 'GET',
+                            credentials: 'include'
+                        });
+                        const validateData = await validateResponse.json();
+                        console.log('Validation result:', validateData);
+                        
+                        // Test logout
+                        console.log('Testing logout...');
+                        const logoutResponse = await fetch('/api/auth/logout', {
+                            method: 'POST',
+                            credentials: 'include'
+                        });
+                        const logoutData = await logoutResponse.json();
+                        console.log('Logout result:', logoutData);
+                    }
+                }
+                
+                console.log('='.repeat(50));
+                console.log('Real API test completed');
+            } catch (error) {
+                console.error('Error testing real API:', error);
+            }
+        }
+
+        // Auto-log page ready
+        window.addEventListener('load', () => {
+            console.log('Auth test page loaded successfully');
+            console.log('Click "Run Auth Tests" to test the mock API');
+            console.log('Click "Test Real API" to test the actual server endpoints');
+        });
+    </script>
+</body>
+</html>

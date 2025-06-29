@@ -1,0 +1,125 @@
+; TinyOS Configuration File Template
+; Copy this to settings.cfg and configure with your actual values
+; NEVER commit settings.cfg to version control!
+
+[System]
+max_concurrent_users = 50
+system_reserved_cpu = 25.0
+system_reserved_ram_mb = 128
+min_system_ram_mb = 512
+resource_monitor_interval = 5s
+
+[Security]
+max_message_length = 1000
+max_sessions_per_user = 3
+max_sessions_per_ip = 5
+rate_limit_messages = 300
+rate_limit_bandwidth = 10240
+enable_sql_injection_filter = true
+enable_xss_filter = true
+enable_command_injection_filter = true
+
+[JWT]
+; JWT secret key for token signing - CHANGE THIS IN PRODUCTION!
+; Generate with: openssl rand -base64 32
+secret_key = CHANGE_ME_IN_PRODUCTION_USE_RANDOM_SECRET
+; Token expiration in hours
+token_expiration_hours = 24
+
+[DeepSeek]
+; DeepSeek AI API configuration
+; IMPORTANT: Set your actual API key here or use environment variable
+api_key = YOUR_DEEPSEEK_API_KEY_HERE
+; Use environment variable DEEPSEEK_API_KEY instead of hardcoding
+use_environment_variable = true
+
+[Authentication]
+max_username_length = 20
+min_username_length = 3
+
+[ChatRateLimit]
+max_requests_per_minute = 10
+max_requests_per_minute_ban = 20
+rate_limit_duration = 2m
+rate_limit_reset_interval = 1m
+
+[FileSystem]
+max_directories_per_user = 20
+max_files_per_directory = 100
+max_file_size_kb = 1024
+user_quota_kb = 10240
+
+[Terminal]
+max_session_requests_per_minute = 300
+session_request_time_window = 1m
+ip_ban_duration = 24h
+
+[Editor]
+max_lines = 5000
+debug_mapping_verification = false
+
+[Network]
+pong_timeout = 90s
+write_wait_timeout = 10s
+max_message_size_kb = 64
+max_channel_buffer = 10000
+client_timeout = 30s
+
+[Debug]
+enable_debug_logging = true
+log_level = WARN
+log_file = debug.log
+max_log_size_mb = 10
+log_rotation_count = 3
+enable_performance_monitoring = false
+enable_request_logging = false
+; Selective logging areas (true/false)
+log_websocket = false
+log_terminal = false
+log_auth = false
+log_chat = false
+log_editor = true
+log_filesystem = false
+log_resources = false
+log_security = true
+log_bansystem = true
+log_tinybasic = true
+log_database = false
+log_session = false
+log_config = false
+
+[WebSocket]
+read_buffer_size = 16384
+write_buffer_size = 16384
+; Comma-separated list of allowed WebSocket origins for CORS protection
+allowed_origins = http://localhost:8080,http://127.0.0.1:8080,https://example.com
+
+[Telnet]
+; Predefined telnet targets (name = display_name|host:port)
+; Only these targets are allowed for security reasons
+towel = Towel Day Animation|towel.blinkenlights.nl:23
+telehack = Telehack Retro System|telehack.com:23
+mud = MUD Game Example|batmud.bat.org:23
+freechess = Free Internet Chess Server|freechess.org:5000
+
+[TLS]
+; TLS/HTTPS Configuration
+enable_tls = false
+; Let's Encrypt automatic certificate management
+enable_letsencrypt = false
+; Domain name for Let's Encrypt (required if enable_letsencrypt = true)
+domain = your-domain.com
+; Email for Let's Encrypt registration (required if enable_letsencrypt = true)
+letsencrypt_email = admin@your-domain.com
+; Certificate cache directory (will be created if not exists)
+cert_cache_dir = ./certs
+; Force HTTPS redirect (redirect HTTP to HTTPS)
+force_https_redirect = false
+; TLS certificate file path (if not using Let's Encrypt)
+cert_file = ./certs/server.crt
+; TLS key file path (if not using Let's Encrypt)
+key_file = ./certs/server.key
+; HTTP port (used for Let's Encrypt challenge and optional HTTP redirect)
+http_port = 8080
+; HTTPS port (used when TLS is enabled)
+https_port = 8443

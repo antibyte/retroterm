@@ -1,0 +1,76 @@
+---
+
+**PROJEKTBESCHREIBUNG FÜR KI-MODELL (GitHub Copilot)**
+
+Dies ist eine Beschreibung des **Retro-Terminal-Projekts**. Nutze diese Informationen, um Fragen zum Projekt zu beantworten, Code zu verstehen, oder neuen Code im Kontext dieses Projekts zu generieren.
+
+**Projektübersicht:**
+
+*   **Typ:** Web-Anwendung.
+*   **Simulation:** Simuliert ein 80er-Jahre Retro-Terminal im Browser.
+*   **Visuell:** Grüner Monochrome-Monitor ohne Farben, unterstützt 16 Helligkeitsstufen für Grafik.
+*   **Backend:** Implementiert in **Golang**.
+*   **Betriebssystem:** Virtuelles Multiuser-Betriebssystem namens **TinyOS** im Backend.
+*   **Kommunikation:** Frontend und Backend kommunizieren über **WebSockets**.
+
+**TinyOS (Virtuelles Betriebssystem):**
+
+*   **Zweck:** Simuliert ein Retro-Betriebssystem der 80er-Ära.
+*   **Kernbefehle:** Bietet Standardbefehle für Datei- und Verzeichnungsoperationen wie `ls`, `cd`, `mkdir`, `cat`, `write`, `rm`, `pwd`, `echo`, `clear`.
+*   **Benutzerverwaltung:** Ermöglicht `register` und `login` für Benutzer. `logout` beendet die Sitzung.
+*   **Authentifizierung:** **Session-basiertes System**.
+*   **Datenbank:** Nutzt **SQLite** (`tinyos.db`) für persistente Daten. Speichert Benutzername und *verschlüsseltes* Passwort.
+*   **Registrierungs-Limits:** Beschränkt Registrierungen auf 1 pro IP-Adresse innerhalb von 24 Stunden. Speichert Versuche in der Datenbank (`registration_attempts` Tabelle).
+*   **Sperren (Bans):** Benutzer und/oder IPs können **gebannt** werden. Bans sind persistent und werden in der Datenbank (`banned_users` Tabelle) gespeichert und beim Start geladen. Die `IsBanned` Funktion prüft sowohl Benutzername als auch IP.
+*   **Sitzungen (Sessions):** Sitzungen werden im Speicher (`os.sessions`) gehalten und können aus der Datenbank wiederhergestellt werden. Sie haben eine Gültigkeit von 24 Stunden (verknüpft mit JWT-Cookie) und werden per Hintergrund-Routine bereinigt. Die SessionID wird vom Backend generiert und an das Frontend gesendet. Die letzte Aktivität und der aktuelle Pfad (`current_path`) werden in der Datenbank aktualisiert.
+
+**Virtual File System (VFS):**
+
+*   **Implementierung:** **In-Memory Baum-Struktur** (`VirtualFile` Knoten).
+*   **Persistenz:** Für angemeldete Benutzer wird das VFS mit der **SQLite-Datenbank** synchronisiert (`virtual_files` Tabelle). Schreiboperationen (`WriteFile`) für angemeldete Benutzer erfolgen **asynchron** in die Datenbank.
+*   **Gast-VFS:** Gastbenutzer nutzen ein **temporäres VFS nur im RAM** [Previous Response, derived from `InitializeGuestVFS` not using DB for reads/writes initially]. Wird bei Systemstart initialisiert. Kann bereinigt werden (`CleanupGuestVFS`).
+*   **Dateipfade:** Nutzt interne Pfade im **Unix-Format** ( `/` ).
+*   **Zugriffskontrolle:** Benutzer sind primär auf ihr Home-Verzeichnis (`/home/username`) beschränkt. Kritische Verzeichnisse (`/home`, `/home/username` selbst) können nicht gelöscht werden. Pfade werden aufgelöst (`ResolvePath`).
+*   **Beispielprogramme:** `.bas`-Dateien aus dem physischen `examples`-Ordner werden für neue Benutzer und Gastbenutzer ins Home-Verzeichnis kopiert/synchronisiert. Dies kann über VFS-Schreiboperationen oder direkten Datenbank-Zugriff erfolgen.
+
+**TinyBASIC Interpreter:**
+
+*   **Zugriff:** Startbar über den `basic` Befehl in TinyOS.
+*   **Sprachfunktionen:** Umfangreicher, zeilenbasierter Interpreter [Previous Response]. Unterstützt Befehle für Sound (`SOUND`, `BEEP`), Grafik (`PLOT`, `DRAW`, `CIRCLE`, `RECT`, `FILL`, `INK`, `POLY`), und Sprache (`SAY`, `SPEAK`).
+*   **Dateizugriff:** Unterstützt `LOAD` und `SAVE` für Programme im VFS, sowie Dateibefehle (`OPEN`, `CLOSE`, `LINE INPUT`, `READ`, `DATA`, `RESTORE`).
+*   **Fehlerbehandlung:** Strukturierte Fehlerbehandlung in `errors.go`.
+*   **Steuerung:** `SAY`/`SPEAK` Befehle können die Ausführung pausieren, bis das Frontend `SAY_DONE` meldet. Der Interpreter kommuniziert über einen Kanal (`OutputChan`) mit dem Frontend [Previous Response - *Self-correction: Not explicitly in sources, inferring from how BASIC sends output.* Stick to what *is* in sources: Interface.go is for communication, implies mechanism exists.]
+
+**KI-Chat:**
+
+*   **Zugriff:** Startbar über den `chat` Befehl in TinyOS.
+*   **API:** Verbindet sich mit der **Deepseek API**.
+*   **Verfügbarkeit:** Nur für angemeldete Benutzer.
+*   **Raten-/Zeitlimits:** Unterliegt strengen **Zeitlimits** (z.B. 5 Minuten pro Stunde, 15 Minuten pro Tag), die von TinyOS verwaltet werden (`chatRateLimits`, `chat_usage` Tabelle).
+*   **Ausgabe-Parsing:** Backend parst KI-Antworten auf spezielle Befehle wie `*beep*` und `*talk:*` und sendet entsprechende Nachrichten an das Frontend. Der KI-Prompt gibt den Retro-Stil vor und verbietet Emojis.
+
+**Frontend (Browser):**
+
+*   **Technologie:** Nutzt **three.js Shader** für CRT-Look.
+*   **Darstellung:** Zeigt Text, Grafik, Sound, und Sprache basierend auf Backend-Befehlen.
+*   **Sprachausgabe:** Verwendet den **SAM-Synthesizer**. Sendet `SAY_DONE` an das Backend, wenn die Sprachausgabe beendet ist, ggf. mit einer ID.
+*   **Sound:** Kann `floppy.mp3` abspielen.
+*   **Eingabe:** Leitet Nutzereingaben über WebSocket an das Backend weiter. Kann die Eingabe sperren/entsperren. Strg+C sendet einen `__BREAK__` Befehl an das Backend.
+*   **Initialisierung:** Sendet Terminal-Dimensionen an das Backend. Empfängt die SessionID vom Backend nach der Initialisierungsanfrage.
+
+**Sicherheit:**
+
+*   **WebSockets:** Gesichert mit **CORS und CSRF-Tokens** in Produktionsumgebungen. Tokens werden rotiert und haben eine Gültigkeit.
+*   **Entwicklung:** CORS und CSRF-Tokens können in der lokalen Entwicklung deaktiviert werden. Eine Fallback-Logik für lokale Verbindungen (`127.0.0.1`, `[::1]`, `localhost`) kann Entwicklungs-Tokens akzeptieren.
+*   **Authentifizierung:** Nutzt **JWT-Tokens** für authentifizierte Sessions. Gast-Tokens sind 24h gültig. Der JWT Secret Key sollte sicher gespeichert werden.
+*   **Logging:** Detaillierte Debug-Ausgaben werden in die Datei `debug.log` umgeleitet. Diese Datei wird bei jedem Serverstart geleert. Dies beinhaltet Umleitung von `fmt.Printf`.
+*   **IP-Tracking:** IP-Adressen werden bei Registrierungen, Anmeldungen, und WebSocket-Verbindungen protokolliert und für Rate-Limiting/Bans verwendet.
+
+**Technische Details:**
+
+*   **Sprache:** Go.
+*   **Datenbank:** SQLite. Tabellen: `users`, `virtual_files`, `banned_users`, `registration_attempts`, `chat_usage`, `user_sessions`, `csrf_tokens`.
+*   **Parallelisierung:** Nutzt Goroutinen für Aufgaben wie Session-Bereinigung, Ping-Mechanismus, asynchrone DB-Schreibvorgänge im VFS.
+*   **Plattform:** VFS funktioniert auf Windows und Linux.
+
+---

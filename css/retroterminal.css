@@ -1,0 +1,122 @@
+/* retroterminal.css – klassischer CRT-Monitor-Look (aus retroterminal_old.html) */
+
+body {
+    background: url('background.png') no-repeat center center fixed;
+    background-size: cover;
+    font-family: 'Glass TTY VT220', 'VT323', monospace;
+    margin: 0;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+/* Monitor-Gehäuse */
+.monitor-frame {
+    width: 860px;
+    height: 660px;
+    background: #111111 !important; /* Test: Rahmen sichtbar machen */
+    border-radius: 15px;
+    padding: 30px;
+    box-shadow: 0 0 50px rgba(0, 20, 0, 0.3);
+    position: relative;
+    transform: perspective(800px) rotateX(2deg);
+    /* margin-top entfernt für exakte vertikale Zentrierung */
+    z-index: 10;
+}
+
+/* Monitor-Abschluss oben (klassisch) */
+.monitor-top {
+    width: 860px;
+    height: 20px;
+    background: #0a0a0a;
+    border-radius: 10px 10px 0 0;
+    position: absolute;
+    top: -10px;
+    left: 30px;
+}
+
+/* Bildschirmbereich (klassisch) */
+.monitor-inner {
+    width: 840px;
+    height: 640px;
+    background: #080808;
+    border-radius: 8px;
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    box-sizing: border-box;
+    /* Sicherstellen, dass der Inhalt zentriert und nicht größer als der Container ist */
+    padding: 0;
+}
+.monitor-inner::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg,
+            rgba(0, 20, 0, 0) 0%,
+            rgba(0, 40, 0, 0.15) 50%,
+            rgba(0, 20, 0, 0) 100%);
+}
+
+/* Power-Button (optional, falls im HTML vorhanden) */
+.power-button {
+    width: 16px;
+    height: 16px;
+    background: #888;
+    border-radius: 50%;
+    position: absolute;
+    right: 50px;
+    bottom: 12px;
+    box-shadow: 0 0 2px #333;
+    border: 2px solid #444;
+}
+
+/* Power-LED */
+.power-led {
+    width: 4px;
+    height: 4px;
+    background: #00aa00;
+    border-radius: 50%;
+    position: absolute;
+    right: 30px;
+    bottom: 15px;
+    box-shadow: 0 0 4px rgba(0, 255, 0, 0.4);
+}
+
+.crt-container {
+    width: 800px; /* Reduziert: nur noch 20px pro Seite statt 60px */
+    height: 606px; /* Reduziert: nur noch 17px pro Seite statt 50px */
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+    margin: 0;
+}
+
+/* Editor cursor blink animation */
+@keyframes cursor-blink {
+    0%, 50% { opacity: 1; }
+    51%, 100% { opacity: 0; }
+}
+
+.editor-cursor {
+    background-color: #5FFF5F !important;
+    color: #000000 !important;
+    animation: cursor-blink 1s infinite;
+}
+
+/* Editor status line */
+.editor-status {
+    background-color: #5FFF5F;
+    color: #000000;
+    font-weight: bold;
+    padding: 0 5px;
+    white-space: pre;
+}

@@ -1,0 +1,105 @@
+10 REM ===========================================
+15 REM BRIGHTNESS LEVELS DEMONSTRATION
+20 REM Shows all 16 brightness levels (0-15)
+25 REM Full screen visual showcase
+30 REM ===========================================
+
+100 REM Screen constants
+110 LET SCREENW = 640
+120 LET SCREENH = 480
+130 LET PI = 3.14159
+140 LET CENTERX = SCREENW / 2
+150 LET CENTERY = SCREENH / 2
+
+200 REM Clear screen and start demo
+210 CLS
+
+300 REM SECTION 1: Brightness gradient bars
+310 FOR B = 0 TO 15
+320   LET X = B * 40
+330   RECT X, 0, 39, 120, B, 1
+340 NEXT B
+350 WAIT 3000
+
+400 REM SECTION 2: Circular brightness rings
+410 FOR B = 0 TO 15
+420   LET RADIUS = 10 + B * 8
+430   CIRCLE CENTERX, 180, RADIUS, B, 0
+440 NEXT B
+450 WAIT 3000
+
+500 REM SECTION 3: Brightness spectrum grid
+510 FOR B = 0 TO 15
+520   LET X = (B MOD 4) * 160
+530   LET Y = 280 + (B / 4) * 40
+540   FOR I = 0 TO 39
+550     FOR J = 0 TO 39
+560       PLOT X + I * 4, Y + J, B
+570     NEXT J
+580   NEXT I
+590 NEXT B
+600 WAIT 3000
+
+610 REM SECTION 4: Simple brightness patterns
+620 CLS
+630 FOR B = 0 TO 15
+640   FOR Y = 0 TO 29
+650     LET X = B * 40 + Y
+660     PLOT X, 200 + B * 15, B
+670   NEXT Y
+680 NEXT B
+690 WAIT 3000
+
+800 REM SECTION 5: Brightness circles
+810 CLS
+820 FOR B = 0 TO 15
+830   LET X = 50 + (B MOD 8) * 70
+840   LET Y = 100 + (B / 8) * 150
+850   CIRCLE X, Y, 25, B, 1
+860 NEXT B
+870 WAIT 3000
+
+900 REM SECTION 6: Simple brightness spiral
+910 CLS
+920 FOR T = 0 TO 200 STEP 5
+930   LET ANGLE = T * 0.3
+940   LET RADIUS = T * 0.8
+950   LET X = CENTERX + COS(ANGLE) * RADIUS
+960   LET Y = CENTERY + SIN(ANGLE) * RADIUS
+970   LET BRIGHTNESS = (T / 15) MOD 16
+980   IF X >= 0 AND X < SCREENW AND Y >= 0 AND Y < SCREENH THEN CIRCLE X, Y, 5, BRIGHTNESS, 1
+990 NEXT T
+1000 WAIT 3000
+
+1100 REM SECTION 7: Simple brightness grid
+1110 CLS
+1120 FOR X = 0 TO 15
+1130   FOR Y = 0 TO 15
+1140     LET BRIGHTNESS = (X + Y) MOD 16
+1150     RECT X * 35, Y * 25, 30, 20, BRIGHTNESS, 1
+1160   NEXT Y
+1170 NEXT X
+1180 WAIT 3000
+
+1300 REM SECTION 8: Random brightness dots
+1310 CLS
+1320 FOR I = 0 TO 200
+1330   LET X = RND(SCREENW)
+1340   LET Y = RND(SCREENH)
+1350   LET BRIGHTNESS = RND(16)
+1360   CIRCLE X, Y, 3 + RND(8), BRIGHTNESS, RND(2)
+1370 NEXT I
+1380 WAIT 3000
+
+1500 REM Final display - all brightness levels showcase
+1510 CLS
+1520 FOR B = 0 TO 15
+1530   FOR I = 0 TO 20
+1540     LET X = RND(SCREENW)
+1550     LET Y = RND(SCREENH)
+1560     CIRCLE X, Y, 5 + RND(15), B, RND(2)
+1570   NEXT I
+1580 NEXT B
+
+1600 WAIT 5000
+1610 END

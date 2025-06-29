@@ -1,0 +1,15 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"type": "shell",
+			"label": "Build Go project",
+			"command": "go build -v ./...",
+			"group": "build",
+			"problemMatcher": [
+				"$go"
+			],
+			"args": []
+		}
+	]
+}

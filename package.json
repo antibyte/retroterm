@@ -1,0 +1,31 @@
+{
+  "name": "tinyos-web",
+  "version": "1.0.0",
+  "description": "TinyOS Retro Terminal Web Application",
+  "main": "js/retroterminal.js",
+  "scripts": {
+    "build": "node build.js",
+    "build:win": "powershell -ExecutionPolicy Bypass -File build.ps1",
+    "build:unix": "bash build.sh",
+    "build:clean": "node build.js --clean",
+    "build:dev": "node build.js --skip-minify",
+    "serve": "npx http-server dist -p 8080 -c-1",
+    "serve:dev": "npx http-server . -p 3000 -c-1"
+  },
+  "keywords": [
+    "retro",
+    "terminal",
+    "tinybasic",
+    "vintage-computing",
+    "crt"
+  ],
+  "author": "TinyOS Development Team",
+  "license": "MIT",
+  "devDependencies": {
+    "terser": "^5.24.0",
+    "http-server": "^14.1.1"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}

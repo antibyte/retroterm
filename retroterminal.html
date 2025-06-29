@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes">
+    <title>Retro CRT Terminal - TinyOS Vintage Computer Experience</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Erleben Sie nostalgische Computing mit TinyOS - einem authentischen Retro-Terminal mit CRT-Monitor-Ästhetik, TinyBASIC-Programmierung, Spielen und mehr.">
+    <meta name="keywords" content="retro computing, vintage computer, TinyBASIC, CRT terminal, nostalgic programming, retro games, 80s computer, terminal emulator">
+    <meta name="author" content="TinyOS Development Team">
+    <meta name="robots" content="index, follow">
+    
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:title" content="Retro CRT Terminal - TinyOS Vintage Computer Experience">
+    <meta property="og:description" content="Erleben Sie nostalgische Computing mit TinyOS - einem authentischen Retro-Terminal mit CRT-Monitor-Ästhetik, TinyBASIC-Programmierung, Spielen und mehr.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="">
+    <meta property="og:image" content="assets/background.png">
+    <meta property="og:site_name" content="TinyOS">
+    
+    <!-- Twitter Card Meta Tags -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="Retro CRT Terminal - TinyOS">
+    <meta name="twitter:description" content="Authentisches Retro-Computing-Erlebnis mit TinyBASIC und CRT-Ästhetik">
+    <meta name="twitter:image" content="assets/background.png">
+    
+    <!-- Technical Meta Tags -->
+    <meta name="theme-color" content="#00ff00">
+    <meta name="application-name" content="TinyOS">
+    <link rel="canonical" href="">
+    
+    <link rel="stylesheet" href="retroterminal.css">
+    <link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+    <!-- SAM.js für die Sprachsynthese - lokale Version verwenden falls vorhanden -->
+    <link href="https://webonastick.com/fonts/glasstty/" rel="stylesheet">    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=yes">
+    
+    <!-- Dynamisches Viewport-System wird jetzt im Body geladen -->
+    
+    <style>    /* CSS für den CRT-Container und das Canvas */
+    .crt-container {
+        /* Stellt sicher, dass der Container die Größe des Canvas bestimmt oder umgekehrt */
+        /* Ggf. hier Dimensionen oder Flexbox-Eigenschaften hinzufügen, falls nötig */
+        display: flex; /* Hilft bei der Zentrierung, falls das Canvas kleiner ist */
+        justify-content: center;
+        align-items: center;
+        /* Die Größe des Containers wird durch das Canvas oder die Monitor-Frame-Skalierung bestimmt */
+    }
+
+    #terminalCanvas {
+        /* Die Größe wird durch Three.js via renderer.setSize() gesetzt */
+        /* Ggf. display: block; hinzufügen, um unerwünschte Abstände zu vermeiden */
+        display: block;
+    }
+
+    /* Dynamische Monitor-Skalierung für Viewport-Anpassung */
+    html, body {
+        height: 100vh;
+        width: 100vw;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #222 url('background.png') no-repeat center center fixed;
+        background-size: cover;
+    }
+    body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        width: 100vw;
+        min-height: unset;
+        position: relative;
+    }
+    .monitor-frame {
+        width: 860px; /* Basisbreite des Monitorrahmens */
+        height: 660px; /* Basishöhe des Monitorrahmens */
+        /* Hintergrundbild für den Monitorrahmen, falls vorhanden */
+        /* background-image: url('assets/monitor_frame.png'); */
+        /* background-size: contain; */
+        /* background-repeat: no-repeat; */
+        /* background-position: center; */
+        display: flex; /* Um den crt-container darin zu zentrieren */
+        justify-content: center;
+        align-items: center;
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) scale(1);
+        transform-origin: center center;
+        will-change: transform;
+    }    </style>    
+    <script>
+    // Debug-Funktion zur Prüfung der Terminal-Initialisierung
+    window.addEventListener('DOMContentLoaded', function() {
+        setTimeout(function() {
+            // Das Canvas wird dynamisch von retrographics.js erstellt, nicht mit ID 'terminal'
+            const crtContainer = document.querySelector('.crt-container');
+            const canvasElements = crtContainer ? crtContainer.querySelectorAll('canvas') : [];
+            
+            if (canvasElements.length > 0) {
+                console.log("Terminal-Canvas gefunden:", canvasElements.length, "Canvas-Elemente");
+                canvasElements.forEach((canvas, index) => {
+                    console.log(`Canvas ${index}: ${canvas.width}x${canvas.height}, ID: ${canvas.id || 'keine ID'}`);
+                });
+            } else {
+                console.warn("Noch keine Canvas-Elemente gefunden - werden möglicherweise später erstellt");
+            }
+        }, 1000); // Längere Wartezeit für dynamische Erstellung
+    });
+    
+    // Dynamische Monitor-Skalierung über das neue DynamicViewport-System
+    function updateMonitorScale() {
+        if (window.DynamicViewport) {
+            const viewport = window.DynamicViewport.current;
+            
+            // Monitor-Basisgröße
+            const baseWidth = 860;
+            const baseHeight = 660;
+            
+            // Berechne Skalierung basierend auf verfügbarem Platz
+            const scaleW = viewport.actualWidth / baseWidth;
+            const scaleH = viewport.actualHeight / baseHeight;
+            const scale = Math.min(scaleW, scaleH) * 0.95; // 5% Rand lassen
+            
+            const monitor = document.querySelector('.monitor-frame');
+            if (monitor) {
+                monitor.style.transform = `translate(-50%, -50%) scale(${scale})`;
+            }
+        } else {
+            // Fallback auf altes System
+            const ratio = window.devicePixelRatio || 1;
+            const availW = window.innerWidth * ratio;
+            const availH = window.innerHeight * ratio;
+            const scaleW = availW / 860;
+            const scaleH = availH / 660;
+            const scale = Math.min(scaleW, scaleH) * (1 / ratio);
+            const monitor = document.querySelector('.monitor-frame');
+            if (monitor) {
+                monitor.style.transform = `translate(-50%, -50%) scale(${scale})`;
+            }
+        }
+    }
+    
+    // Event-Listener für Monitor-Skalierung
+    window.addEventListener('DOMContentLoaded', updateMonitorScale);
+    window.addEventListener('resize', updateMonitorScale);
+    
+    // Integration mit DynamicViewport falls verfügbar
+    window.addEventListener('DOMContentLoaded', function() {
+        if (window.DynamicViewport) {
+            window.DynamicViewport.onResize(() => {
+                updateMonitorScale();
+            });
+            console.log('[MONITOR] Mit DynamicViewport-System integriert');
+        } else {
+            // Fallback für Browser ohne DynamicViewport
+            window.addEventListener('zoom', updateMonitorScale);
+            setInterval(updateMonitorScale, 1000);
+        }
+    });
+    </script>
+</head>
+
+<body>
+    <div class="monitor-frame">
+        <div class="monitor-top"></div>
+        <div class="monitor-inner">            <div class="crt-container">
+                <canvas id="terminalCanvas"></canvas>
+                <!-- Der WebGL-Renderer-Canvas wird hier von retrographics.js dynamisch erstellt und eingefügt -->
+                <div class="crt-effect"></div>
+                <div id="input-disabled-overlay" style="display: none;"></div>                <!-- Editor-Overlay für Fullscreen-Editor -->
+            </div>
+            <!-- Eingabezeile entfernt, da diese von retroconsole.js übernommen wird -->
+        </div>
+        <div class="power-led"></div>
+    </div>    <script src="js/config.js"></script>
+<script src="js/dynamicViewport.js"></script> <!-- HIER EINGEFÜGT UND AKTIVIERT -->
+<script src="js/samjs.min.js"></script>
+<script src="js/samInit.js"></script>
+<script src="js/three.min.js" id="threejs"></script>
+<script type="module" src="js/retrographics.js"></script>
+<script type="module" src="js/spriteManager.js"></script>
+<script type="module" src="js/vectorManager.js"></script>
+<script src="js/jsSID.js"></script>
+<script src="js/sidPlayer.js"></script>
+<script src="js/retrosound.js"></script>
+<script src="js/ansiParser.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/retroconsole.js"></script>
+<!-- Nur das Hauptmodul als Entry-Point laden: -->
+<script type="module" src="js/retroterminal.js"></script>
+</body>
+
+</html>

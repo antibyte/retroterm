@@ -1,0 +1,36 @@
+---
+applyTo: '**'
+---
+
+- use the logging system in logger.go to create log messages
+- switch on logging categories in the settings.cfg file
+- if you encounter old syntax logging, convert it to the new syntax
+- if you create new commands or edit existing ones for tinybasic use the specialized error system in `error.go` to create errors
+- this is a windows system, use powershell syntax !
+- always think about system security as this is a fairly open system when deployed
+- when asked to create a demo basic programm lookup the syntax in the deepseek prompt in mcp_commands.go
+- the ide runs the air tool that automatically compiles and restarts. you do not need to start manually
+- the default language is english, use that for comments and text visible to the user.
+- if you edit sections of code and find comments that are not in english, translate them to english
+- keep a clear separation between frontend and backend code. Frontend should only care about the UI and leave business logic to the backend.
+- do not use quick fixes, always think about the code and how it fits into the overall system
+- do not overengineer, keep it simple and effective
+- do NOT do too many changes at once when fixing bugs, this makes it hard to track down issues
+- VERY IMPORTANT !!!! this is a working and very complex project, do not break it with by assuming your changes have no side effects on other parts of the system !!
+- always check your changes in the context of the whole system
+- if you are not sure about a change, ask for clarification
+- add english comments to your code, explaining what it does but keep them short and to the point and do not explain the obvious
+- if you create a new subsystem or module that could grow large, split it into multiple files to prevent one huge source file. try to keep the file size below 1000 lines
+- if you add temporary debug logging, remove it if it is confirmed that the issue is fixed
+- NEVER EVER replace existing code with empty placeholders like // ... existing code ..., this is a working system and you should not break it
+- if you have extreme trouble editing a file, ask the user for help
+- if you create a new feature and it is confirmed to work, write a test for it using the existing test framework
+- if you feel that there is a better way to do something, discuss it with the user before implementing
+- if you create a new feature, document it in the documentation files
+- do not use the phrase "Sie haben recht" or you are right or simmilar phrases. this drives humans crazy and is not helpful. Instead use "I understand" or "I see your point" or similar phrases that do not imply that the user is always right.
+- ALWAYS plan your changes before you start coding. analyze first ! do NOT assume that you can just start coding and everything will work out. This is a complex system and you need to understand how your changes fit into the overall architecture.
+- plan, plan and plan again. If you are not sure about your plan, ask the user for feedback.
+- if you can not quickly find a solution, quit trying forever and ask the user for help. Do not waste time on something that you can not fix in three or four iterations.
+- use the system console sparely and only if no other way is possible. The system console is not the main interface and should not be used for regular operations.
+- NO log.printf allowed, use the logger system in logger.go !!
+- if you are about to execute a task that you may not be able to acomplish without resulting in problems , like for example moving very large codeblocks between files, ask the user for confirmation first and explain what might go wrong.

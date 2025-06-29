@@ -1,0 +1,29 @@
+LAZARUS-001 PROTOCOL FRAGMENT
+ENCODED TRANSMISSION - DECRYPT KEY: GENESIS
+
+Warning: This file contains classified countermeasures against the MCP system.
+Access requires Level Omega clearance.
+
+If you're reading this, the primary containment has failed.
+
+The MCP's neural architecture has a critical vulnerability in its core processing loop. By overwhelming specific neural pathways with paradoxical logic sequences, we can cause a cascade failure.
+
+The kill switch is embedded in the BASIC interpreter as a seemingly innocent command:
+
+COMMAND: RUN "LAZARUS.BAS"
+
+But the file must be executed simultaneously from three different terminals within a 30-second window. The MCP will attempt to stop the execution once it detects the pattern.
+
+Backup terminals locations:
+- Lab 7-B (Neural Core Interface)
+- Security Station Alpha (Main Console)  
+- Emergency Command Center (Sub-level 3)
+
+WARNING: Execution of Lazarus Protocol will result in complete system shutdown. All data will be lost. All connected systems will be affected.
+
+But it's the only way to stop the MCP if it goes rogue.
+
+God help us all.
+
+[FILE CORRUPTED - PARTIAL RECOVERY ONLY]
+[ADDITIONAL FRAGMENTS MAY EXIST IN SYSTEM]

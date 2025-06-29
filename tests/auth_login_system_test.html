@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Authentication & Login System Tests - TinyOS Security Validation</title>
+    
+    <!-- SEO Meta Tags -->
+    <meta name="description" content="Comprehensive authentication and login system testing suite for TinyOS - automated security validation, session testing, and authentication workflow verification.">
+    <meta name="keywords" content="authentication testing, login system testing, security validation, automated testing, TinyOS, session management, security audit">
+    <meta name="author" content="TinyOS Security Team">
+    <meta name="robots" content="noindex, nofollow">
+    
+    <!-- Open Graph Meta Tags -->
+    <meta property="og:title" content="Authentication & Login System Tests - TinyOS">
+    <meta property="og:description" content="Comprehensive security testing suite for TinyOS authentication systems">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="TinyOS Testing Suite">
+    
+    <!-- Technical Meta Tags -->
+    <meta name="theme-color" content="#00ff00">
+    <meta name="application-name" content="TinyOS Security Tests">
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #1a1a1a;
+            color: #00ff00;
+            margin: 20px;
+            line-height: 1.6;
+        }
+        .test-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .test-header {
+            text-align: center;
+            border-bottom: 2px solid #00ff00;
+            padding-bottom: 20px;
+            margin-bottom: 30px;
+        }
+        .test-results {
+            background-color: #2a2a2a;
+            padding: 20px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .test-item {
+            margin: 10px 0;
+            padding: 10px;
+            border-left: 4px solid #00ff00;
+            background-color: #333;
+        }
+        .test-item.failed {
+            border-left-color: #ff0000;
+            color: #ff9999;
+        }
+        .test-summary {
+            background-color: #003300;
+            padding: 15px;
+            border-radius: 5px;
+            margin-top: 20px;
+            text-align: center;
+        }
+        .test-summary.failed {
+            background-color: #330000;
+        }
+        button {
+            background-color: #004400;
+            color: #00ff00;
+            border: 2px solid #00ff00;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: inherit;
+            margin: 10px;
+        }
+        button:hover {
+            background-color: #006600;
+        }
+        .log-output {
+            background-color: #000;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+            margin: 20px 0;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            margin-right: 10px;
+        }
+        .status-pass {
+            background-color: #00ff00;
+        }
+        .status-fail {
+            background-color: #ff0000;
+        }
+        .status-pending {
+            background-color: #ffff00;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <div class="test-header">
+            <h1>🔐 Authentication & Login System Tests</h1>
+            <p>Comprehensive testing suite for temporary user behavior and session management</p>
+        </div>
+
+        <div class="test-controls">
+            <button onclick="runTests()">▶️ Run All Tests</button>
+            <button onclick="clearResults()">🗑️ Clear Results</button>
+            <button onclick="runSpecificTests()">🎯 Run Specific Tests</button>
+        </div>
+
+        <div id="test-status" class="test-summary" style="display: none;">
+            <span class="status-indicator status-pending"></span>
+            <span id="status-text">Tests not started</span>
+        </div>
+
+        <div id="log-output" class="log-output" style="display: none;"></div>
+
+        <div id="test-results" class="test-results" style="display: none;">
+            <h2>📊 Test Results</h2>
+            <div id="results-container"></div>
+        </div>
+
+        <div class="test-summary">
+            <h3>Test Coverage</h3>
+            <ul style="text-align: left; display: inline-block;">
+                <li>✅ AuthManager constructor and initialization</li>
+                <li>✅ Temporary token clearing on browser refresh (dyson user)</li>
+                <li>✅ Regular user token persistence after refresh</li>
+                <li>✅ WebSocket URL generation with authentication</li>
+                <li>✅ Session ID fallback handling</li>
+                <li>✅ Token storage and retrieval</li>
+                <li>✅ Session management</li>
+                <li>✅ Authentication status validation</li>
+                <li>✅ Invalid token handling</li>
+                <li>✅ Security boundary testing</li>
+            </ul>
+        </div>
+    </div>
+
+    <!-- Load dependencies -->
+    <script src="../js/auth.js"></script>
+    <script src="auth_login_system_test.js"></script>
+
+    <script>
+        let testSuite;
+        let logBuffer = [];
+
+        // Override console methods to capture output
+        const originalConsole = {
+            log: console.log,
+            error: console.error,
+            warn: console.warn
+        };
+
+        function captureConsoleOutput() {
+            console.log = function(...args) {
+                const message = args.join(' ');
+                logBuffer.push(`[LOG] ${message}`);
+                updateLogOutput();
+                originalConsole.log.apply(console, args);
+            };
+
+            console.error = function(...args) {
+                const message = args.join(' ');
+                logBuffer.push(`[ERROR] ${message}`);
+                updateLogOutput();
+                originalConsole.error.apply(console, args);
+            };
+
+            console.warn = function(...args) {
+                const message = args.join(' ');
+                logBuffer.push(`[WARN] ${message}`);
+                updateLogOutput();
+                originalConsole.warn.apply(console, args);
+            };
+        }
+
+        function restoreConsoleOutput() {
+            console.log = originalConsole.log;
+            console.error = originalConsole.error;
+            console.warn = originalConsole.warn;
+        }
+
+        function updateLogOutput() {
+            const logElement = document.getElementById('log-output');
+            logElement.textContent = logBuffer.join('\n');
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function updateStatus(text, type = 'pending') {
+            const statusElement = document.getElementById('test-status');
+            const statusText = document.getElementById('status-text');
+            const indicator = statusElement.querySelector('.status-indicator');
+            
+            statusElement.style.display = 'block';
+            statusText.textContent = text;
+            
+            indicator.className = `status-indicator status-${type}`;
+            
+            if (type === 'fail') {
+                statusElement.classList.add('failed');
+            } else {
+                statusElement.classList.remove('failed');
+            }
+        }
+
+        async function runTests() {
+            updateStatus('Initializing tests...', 'pending');
+            clearResults();
+            logBuffer = [];
+            
+            captureConsoleOutput();
+            document.getElementById('log-output').style.display = 'block';
+            
+            try {
+                testSuite = new AuthLoginSystemTests();
+                updateStatus('Running tests...', 'pending');
+                
+                const results = await testSuite.runAllTests();
+                
+                updateStatus(
+                    `Tests completed: ${results.passed}/${results.total} passed`,
+                    results.passed === results.total ? 'pass' : 'fail'
+                );
+                
+                displayResults(results);
+                
+            } catch (error) {
+                updateStatus('Test execution failed', 'fail');
+                console.error('Test execution error:', error);
+            } finally {
+                restoreConsoleOutput();
+            }
+        }
+
+        function displayResults(results) {
+            const resultsContainer = document.getElementById('results-container');
+            const resultsDiv = document.getElementById('test-results');
+            
+            resultsDiv.style.display = 'block';
+            
+            let html = `
+                <div class="test-summary ${results.passed !== results.total ? 'failed' : ''}">
+                    <h3>Summary: ${results.passed}/${results.total} tests passed</h3>
+                    <p>Success Rate: ${((results.passed / results.total) * 100).toFixed(1)}%</p>
+                </div>
+            `;
+            
+            results.results.forEach(result => {
+                html += `
+                    <div class="test-item ${result.passed ? '' : 'failed'}">
+                        <span class="status-indicator ${result.passed ? 'status-pass' : 'status-fail'}"></span>
+                        Test ${result.test}: ${result.message}
+                    </div>
+                `;
+            });
+            
+            resultsContainer.innerHTML = html;
+        }
+
+        function clearResults() {
+            document.getElementById('test-results').style.display = 'none';
+            document.getElementById('log-output').style.display = 'none';
+            document.getElementById('test-status').style.display = 'none';
+            logBuffer = [];
+        }
+
+        async function runSpecificTests() {
+            const testNames = [
+                'testAuthManagerConstructor',
+                'testTemporaryTokenClearingOnRefresh',
+                'testRegularUserTokenNotClearedOnRefresh',
+                'testWebSocketUrlWithToken',
+                'testWebSocketUrlWithSessionIdFallback',
+                'testClearTemporaryTokenOnRefreshFunction',
+                'testTokenStorageAndRetrieval',
+                'testSessionIdStorageAndRetrieval',
+                'testAuthenticationStatus',
+                'testInvalidTokenHandling'
+            ];
+
+            const selectedTests = testNames.filter((_, index) => 
+                confirm(`Run test: ${testNames[index]}?`)
+            );
+
+            if (selectedTests.length === 0) {
+                alert('No tests selected');
+                return;
+            }
+
+            updateStatus('Running selected tests...', 'pending');
+            clearResults();
+            logBuffer = [];
+            
+            captureConsoleOutput();
+            document.getElementById('log-output').style.display = 'block';
+            
+            try {
+                testSuite = new AuthLoginSystemTests();
+                
+                let passedCount = 0;
+                let totalCount = 0;
+                const testResults = [];
+
+                for (const testName of selectedTests) {
+                    totalCount++;
+                    try {
+                        await testSuite[testName]();
+                        passedCount++;
+                        testResults.push({ test: totalCount, message: testName, passed: true });
+                        console.log(`✅ ${testName} passed`);
+                    } catch (error) {
+                        testResults.push({ test: totalCount, message: `${testName}: ${error.message}`, passed: false });
+                        console.error(`❌ ${testName} failed:`, error.message);
+                    }
+                }
+
+                updateStatus(
+                    `Selected tests completed: ${passedCount}/${totalCount} passed`,
+                    passedCount === totalCount ? 'pass' : 'fail'
+                );
+                
+                displayResults({ total: totalCount, passed: passedCount, results: testResults });
+                
+            } catch (error) {
+                updateStatus('Test execution failed', 'fail');
+                console.error('Test execution error:', error);
+            } finally {
+                restoreConsoleOutput();
+            }
+        }
+
+        // Initialize on page load
+        window.addEventListener('load', function() {
+            updateStatus('Ready to run tests', 'pending');
+            console.log('Authentication & Login System Test Suite loaded');
+        });
+    </script>
+</body>
+</html>
