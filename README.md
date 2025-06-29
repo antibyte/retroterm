@@ -1,4 +1,7 @@
 # retroterm
+
+Try it here : https://retroterm.de
+
 A browser based retro terminal with a backend written in go
 This thing was created as an experiment to create a project using only AI as coder.
 Thus 99% of the code was created by various models of Github Copilot.
