@@ -77,7 +77,7 @@ CHR$(x), ASC(str), LEN(str), LEFT$(str,n), RIGHT$(str,n), MID$(str,start[,len]),
 - No CLS needed when moving sprites
 
 **VECTORS (3D objects, max 255 vector objects):**
-- VECTOR id, shape, x, y, z, rotX, rotY, rotZ, scale [, brightness] - define 3D vector
+- VECTOR id, "shape", x, y, z, rotX, rotY, rotZ, scale [, brightness] - define 3D vector
   (shape: "cube", "pyramid", "sphere")
 - VECTOR id AT x, y - move vector
 - VECTOR id COLOR brightness - change vector brightness (0-15)
