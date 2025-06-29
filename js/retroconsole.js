@@ -81,6 +81,7 @@ Object.assign(window.RetroConsole, {
     inverseMode: false, // Inverser Text-Modus aktiviert
       textCanvas: null,
     _textCanvasDirty: true, // Flag to indicate if the text canvas needs redrawing
+    _cursorBlinkInterval: null, // Interval ID for cursor blinking
     _lastCursorState: false, // Track the last cursor blink state
     isTextCanvasDirty: function() {
         // Redraw if content is dirty OR if the cursor's blink state has changed.
@@ -93,6 +94,23 @@ Object.assign(window.RetroConsole, {
         this._lastCursorState = this.inputEnabled && !this.forcedHideCursor && (Math.floor(Date.now() / 500) % 2 === 0);
     },
     textTexture: null,
+    startCursorBlink: function() {
+        if (this._cursorBlinkInterval === null) {
+            this._cursorBlinkInterval = setInterval(() => {
+                if (this.inputEnabled && !this.editorMode && !this.filenameInputMode) {
+                    this.drawTerminal();
+                }
+            }, 500); // Blink every 500ms
+        }
+    },
+    stopCursorBlink: function() {
+        if (this._cursorBlinkInterval !== null) {
+            clearInterval(this._cursorBlinkInterval);
+            this._cursorBlinkInterval = null;
+            // Ensure cursor is hidden when blinking stops
+            this.drawTerminal();
+        }
+    },
     CHAR_WIDTH: 10,
     CHAR_HEIGHT: 20,
     debugMode: false, // Debug mode enabled for chess debugging    // Editor-Variablen
@@ -765,15 +783,20 @@ Object.assign(window.RetroConsole, {
                 // ... existing INPUT_CONTROL logic ...
                 if (response.content === 'enable') {
                     this.inputEnabled = true; this.runMode = false; this.passwordMode = false;
+                    this.startCursorBlink();
                 } else if (response.content === 'disable') {
                     this.inputEnabled = false;
+                    this.stopCursorBlink();
                 } else if (response.content === 'run_mode') {
                     this.inputEnabled = false; this.runMode = true;
+                    this.stopCursorBlink();
                 } else if (response.content === 'password_mode_on') {
                     this.passwordMode = true; this.inputEnabled = true;
+                    this.startCursorBlink();
                 } else if (response.content === 'password_mode_off') {
                     this.passwordMode = false;
                 }
+                break;
                 break;
             case 'BEEP':
                 // ... existing BEEP logic ...
@@ -1187,6 +1210,7 @@ Object.assign(window.RetroConsole, {
                     this.terminalLinesBackup = [...this.lines];
                     this.terminalInverseLinesBackup = [...this.inverseLines];
                     this.terminalScreenBufferBackup = this.screenBuffer ? JSON.parse(JSON.stringify(this.screenBuffer)) : null;
+                    this.stopCursorBlink(); // Stop blinking when entering editor mode
                 }
                 
                 this.editorMode = true;// Process content with fallbacks and better debugging
@@ -1376,11 +1400,13 @@ Object.assign(window.RetroConsole, {
                 }
                 break;            case "filename_input":
                 // Start filename input mode
+                this.stopCursorBlink(); // Stop blinking when entering filename input mode
                 this.startFilenameInput(message);
                 break;
             case "filename_input_complete":
                 // Complete filename input
                 this.stopFilenameInput();
+                this.startCursorBlink(); // Start blinking when exiting filename input mode
                 break;            case "stop":
                 this.editorMode = false;
                 this.filenameInputMode = false;
@@ -1391,6 +1417,7 @@ Object.assign(window.RetroConsole, {
                 this.screenBuffer = this.terminalScreenBufferBackup ? JSON.parse(JSON.stringify(this.terminalScreenBufferBackup)) : null;
                 this.editorData = null; 
                 this.drawTerminal(); 
+                this.startCursorBlink(); // Start blinking when exiting editor mode
                 break;
             default:
                 // console.warn('[EDITOR-CONSOLE] Unknown editor command:', message.editorCommand, message);

@@ -230,14 +230,18 @@ async function setupWebSocket() {
             if (window.RetroConsole) {
                 window.RetroConsole.inputEnabled = true;
                 if (Array.isArray(window.RetroConsole.lines)) {
-                    window.RetroConsole.lines.push("Dialing mainframe...");                } else {
-
+                    window.RetroConsole.lines.push("Dialing mainframe...");
+                } else {
                     window.RetroConsole.lines = ["Dialing mainframe..."]; // Fallback
                 }
                 if (typeof window.RetroConsole.drawTerminal === 'function') {
-                    window.RetroConsole.drawTerminal();                } else {
-
-                }            } else {
+                    window.RetroConsole.drawTerminal();
+                }
+                // Start cursor blinking when input is enabled
+                if (typeof window.RetroConsole.startCursorBlink === 'function') {
+                    window.RetroConsole.startCursorBlink();
+                }
+            } else {
 
             }
         };        // WebSocket message handler
