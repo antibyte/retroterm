@@ -200,9 +200,7 @@ func (os *TinyOS) isInTelnetProcess(sessionID string) bool {
 		if state.Connection == nil {
 			logger.Warn(logger.AreaTerminal, "Found dead telnet session %s (no connection), will be cleaned up", sessionID)
 			// Schedule cleanup in background to avoid deadlock
-			go func() {
-				os.CleanupTelnetSession(sessionID)
-			}()
+			os.CleanupTelnetSessionSync(sessionID)
 			return false
 		}
 	}
@@ -292,17 +290,15 @@ func (os *TinyOS) handleTelnetSession(telnetState *TelnetState) {
 		}
 
 		// CRITICAL FIX: Use async cleanup to prevent deadlock with SendToClientCallback
-		go func() {
-			// Small delay to ensure any ongoing callbacks complete
-			time.Sleep(50 * time.Millisecond)
+		// Perform cleanup synchronously
+		os.telnetMutex.Lock()
+		delete(os.telnetStates, telnetState.SessionID)
+		remainingSessions := len(os.telnetStates)
+		os.telnetMutex.Unlock()
 
-			os.telnetMutex.Lock()
-			delete(os.telnetStates, telnetState.SessionID)
-			remainingSessions := len(os.telnetStates)
-			os.telnetMutex.Unlock()
-
-			logger.Info(logger.AreaTerminal, "Telnet session cleaned up for %s, remaining sessions: %d", telnetState.SessionID, remainingSessions)
-		}()
+		logger.Info(logger.AreaTerminal, "Telnet session cleaned up for %s, remaining sessions: %d", telnetState.SessionID, remainingSessions)
+		// Small delay to ensure any ongoing callbacks complete
+		time.Sleep(50 * time.Millisecond)
 	}()
 
 	// Create channels for coordinated shutdown
@@ -352,20 +348,14 @@ func (os *TinyOS) handleTelnetSession(telnetState *TelnetState) {
 				// CRITICAL FIX: Handle excessive timeouts properly
 				if consecutiveErrors >= maxConsecutiveErrors {
 					logger.Warn(logger.AreaTerminal, "Too many consecutive timeouts (%d) for telnet session %s, forcing cleanup", consecutiveErrors, telnetState.SessionID) // Force cleanup of stuck session
-					go func() {
-						time.Sleep(100 * time.Millisecond)
-						os.CleanupTelnetSession(telnetState.SessionID)
-					}()
+					os.CleanupTelnetSessionSync(telnetState.SessionID)
 					return
 				}
 
 				// Check for extended inactivity (10 minutes of no activity to match config)
 				if time.Since(telnetState.LastActivity) > 10*time.Minute {
 					logger.Warn(logger.AreaTerminal, "Telnet session %s timed out due to inactivity, forcing cleanup", telnetState.SessionID)
-					go func() {
-						time.Sleep(50 * time.Millisecond)
-						os.CleanupTelnetSession(telnetState.SessionID)
-					}()
+					os.CleanupTelnetSessionSync(telnetState.SessionID)
 					return
 				}
 
@@ -379,20 +369,14 @@ func (os *TinyOS) handleTelnetSession(telnetState *TelnetState) {
 			// For other errors, check if we should abort
 			if consecutiveErrors >= maxConsecutiveErrors {
 				logger.Error(logger.AreaTerminal, "Telnet session %s aborted after %d consecutive errors, forcing cleanup", telnetState.SessionID, consecutiveErrors)
-				go func() {
-					time.Sleep(50 * time.Millisecond)
-					os.CleanupTelnetSession(telnetState.SessionID)
-				}()
+								os.CleanupTelnetSessionSync(telnetState.SessionID)
 				return
 			}
 
 			// Check if it's EOF (normal connection close)
 			if err == io.EOF {
 				logger.Info(logger.AreaTerminal, "Telnet connection closed normally by server for session %s, forcing cleanup", telnetState.SessionID)
-				go func() {
-					time.Sleep(50 * time.Millisecond)
-					os.CleanupTelnetSession(telnetState.SessionID)
-				}()
+								os.CleanupTelnetSessionSync(telnetState.SessionID)
 				return
 			}
 
@@ -789,13 +773,13 @@ func (os *TinyOS) HandleTelnetInput(input string, sessionID string) []shared.Mes
 			if err != nil {
 				logger.Error(logger.AreaTerminal, "Error sending telnet input for %s: %v", sessionID, err)
 				// Connection is dead, clean up
-				go os.CleanupTelnetSession(sessionID)
+				os.CleanupTelnetSessionSync(sessionID)
 				return os.CreateWrappedTextMessage(sessionID, "Telnet connection lost")
 			}
 		case <-time.After(5 * time.Second):
 			logger.Error(logger.AreaTerminal, "CRITICAL: Telnet write timeout for session %s - connection appears dead", sessionID)
 			// Force cleanup of dead connection to prevent further blocking
-			go os.CleanupTelnetSession(sessionID)
+			os.CleanupTelnetSessionSync(sessionID)
 			return os.CreateWrappedTextMessage(sessionID, "Telnet connection timeout - session terminated")
 		}
 		// Reset write deadline immediately
@@ -904,78 +888,4 @@ func (os *TinyOS) exitTelnetSession(sessionID string) []shared.Message {
 	return os.CreateWrappedTextMessage(sessionID, "No active telnet session")
 }
 
-// CleanupTelnetSession safely cleans up a telnet session with deadlock prevention
-func (os *TinyOS) CleanupTelnetSession(sessionID string) {
-	logger.Info(logger.AreaTerminal, "=== TELNET CLEANUP START for session %s ===", sessionID)
 
-	// CRITICAL FIX: Use timeout-protected lock to prevent deadlock
-	lockAcquired := make(chan bool, 1)
-
-	go func() {
-		os.telnetMutex.Lock()
-		lockAcquired <- true
-	}()
-
-	select {
-	case <-lockAcquired:
-		// Lock acquired successfully, proceed with cleanup
-		defer os.telnetMutex.Unlock()
-	case <-time.After(10 * time.Second):
-		logger.Error(logger.AreaTerminal, "CRITICAL: Telnet cleanup mutex timeout for session %s - deadlock avoided, session may leak", sessionID)
-		return
-	}
-
-	telnetState, exists := os.telnetStates[sessionID]
-	if !exists {
-		logger.Debug(logger.AreaTerminal, "Telnet cleanup: session %s not found in telnet states", sessionID)
-		return
-	}
-
-	logger.Info(logger.AreaTerminal, "Cleaning up telnet session %s (server: %s)", sessionID, telnetState.ServerName)
-
-	// Signal shutdown to the goroutine first
-	select {
-	case telnetState.ShutdownChan <- struct{}{}:
-		logger.Debug(logger.AreaTerminal, "Shutdown signal sent for session %s", sessionID)
-	default:
-		logger.Debug(logger.AreaTerminal, "Shutdown channel full or closed for session %s", sessionID)
-	}
-
-	// Close connection if still open
-	if telnetState.Connection != nil {
-		err := telnetState.Connection.Close()
-		if err != nil {
-			logger.Debug(logger.AreaTerminal, "Error closing telnet connection for session %s: %v", sessionID, err)
-		}
-		telnetState.Connection = nil
-	}
-
-	// Send end message to frontend
-	endMessage := shared.Message{
-		Type:      shared.MessageTypeTelnet,
-		Content:   "end",
-		SessionID: sessionID,
-	}
-
-	// Try to send via callback if available (async to prevent deadlock)
-	if os.SendToClientCallback != nil {
-		go func() {
-			err := os.SendToClientCallback(sessionID, endMessage)
-			if err != nil {
-				logger.Debug(logger.AreaTerminal, "Failed to send telnet end message via callback: %v", err)
-			} else {
-				logger.Info(logger.AreaTerminal, "Telnet end message sent via callback for session %s", sessionID)
-			}
-		}()
-	}
-	// Also try via output channel with timeout
-	if !telnetState.safeSendToOutputChan(endMessage, 200*time.Millisecond) {
-		logger.Debug(logger.AreaTerminal, "Timeout sending telnet end message via channel for session %s", sessionID)
-	} else {
-		logger.Info(logger.AreaTerminal, "Telnet end message sent via channel for session %s", sessionID)
-	} // Remove from telnet states
-	delete(os.telnetStates, sessionID)
-	remainingSessions := len(os.telnetStates)
-
-	logger.Info(logger.AreaTerminal, "=== TELNET CLEANUP COMPLETE for session %s, remaining sessions: %d ===", sessionID, remainingSessions)
-}

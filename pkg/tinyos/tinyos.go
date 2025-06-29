@@ -512,7 +512,7 @@ func (os *TinyOS) CleanupExpiredSessions() {
 	for id, session := range os.sessions {
 		if now.Sub(session.LastActivity) > sessionTimeout {
 			// Cleanup telnet sessions for expired sessions
-			os.CleanupTelnetSession(id)
+			os.CleanupTelnetSessionSync(session.ID)
 
 			// CRITICAL FIX: Also cleanup cat pager states for expired sessions
 			os.catPagerMutex.Lock()
@@ -2729,7 +2729,7 @@ func (os *TinyOS) CleanupGhostTelnetSessions() {
 }
 
 // cleanupTelnetSessionSync performs synchronous telnet session cleanup
-func (os *TinyOS) cleanupTelnetSessionSync(sessionID string) {
+func (os *TinyOS) CleanupTelnetSessionSync(sessionID string) {
 	os.telnetMutex.Lock()
 
 	telnetState, exists := os.telnetStates[sessionID]
@@ -2835,7 +2835,7 @@ func (os *TinyOS) IsTelnetSessionActive(sessionID string) bool {
 				logger.Warn(logger.AreaTerminal, "Found dead telnet session %s (no connection) in frontend check, will be cleaned up", sessionID)
 				// Schedule cleanup in background to avoid deadlock
 				go func() {
-					os.CleanupTelnetSession(sessionID)
+					os.CleanupTelnetSessionSync(sessionID)
 				}()
 				result <- false
 				return
@@ -2878,7 +2878,7 @@ func (os *TinyOS) CleanupSessionResources(sessionID string) {
 	}
 
 	// 2. Clean up active telnet session
-	os.cleanupTelnetSessionSync(sessionID)
+	os.CleanupTelnetSessionSync(sessionID)
 
 	// 3. Clean up active cat pager state
 	os.catPagerMutex.Lock()

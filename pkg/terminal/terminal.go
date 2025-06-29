@@ -388,7 +388,7 @@ func (h *TerminalHandler) handleClientSession(client *Client, r *http.Request) e
 			// This handles the case where a user reloads the page but telnet sessions remain active
 			if h.os.IsTelnetSessionActive(sessionID) {
 				logger.Info(logger.AreaTerminal, "Cleaning up existing telnet session for reconnecting session %s", sessionID)
-				h.os.CleanupTelnetSession(sessionID)
+				h.os.CleanupTelnetSessionSync(sessionID)
 			}
 
 			// Prüfen, ob Session noch im TinyOS existiert, sonst wiederherstellen
