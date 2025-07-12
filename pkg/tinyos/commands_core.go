@@ -16,7 +16,8 @@ import (
 
 // ExecuteWithContext executes a command with the given context
 // and extracts the SessionID from the context
-func (os *TinyOS) ExecuteWithContext(ctx context.Context, input string) []shared.Message { // Extract session ID from context
+func (os *TinyOS) ExecuteWithContext(ctx context.Context, input string) []shared.Message {
+	logger.Debug(logger.AreaTerminal, "ExecuteWithContext: Entry with input: %q", input)
 	var sessionID string = auth.SessionIDFromContext(ctx)
 
 	// Wenn keine Session-ID vorhanden ist, versuche eine Gast-Session zu erstellen
@@ -68,7 +69,41 @@ func (os *TinyOS) ExecuteWithContext(ctx context.Context, input string) []shared
 		if exists && session.ChessGame != nil {
 			chessGame := session.ChessGame
 			os.sessionMutex.Unlock()
-			return chessGame.HandleInput(input)
+			
+			// Handle chess input and check for quit signal
+			messages := chessGame.HandleInput(input)
+			
+			// Check if chess game should be quit (look for special quit signal)
+			for _, msg := range messages {
+				if msg.Type == shared.MessageTypeText && msg.Content == "CHESS_QUIT_SIGNAL" {
+					// End chess game and filter out the quit signal message
+					os.sessionMutex.Lock()
+					session.ChessGame = nil
+					session.ChessActive = false
+					os.sessions[sessionID] = session
+					os.sessionMutex.Unlock()
+
+					// Return filtered messages without the quit signal
+					filteredMessages := make([]shared.Message, 0)
+					for _, m := range messages {
+						if m.Content != "CHESS_QUIT_SIGNAL" {
+							filteredMessages = append(filteredMessages, m)
+						}
+					}
+					// Switch back to OS_SHELL mode and add final message
+					filteredMessages = append(filteredMessages, shared.Message{
+						Type:    shared.MessageTypeMode,
+						Content: "OS_SHELL",
+					})
+					filteredMessages = append(filteredMessages, shared.Message{
+						Type:    shared.MessageTypeText,
+						Content: "",
+					})
+					os.SetInputMode(sessionID, InputModeOSShell)
+					return filteredMessages
+				}
+			}
+			return messages
 		}
 		os.sessionMutex.Unlock()
 		// Inconsistent state, reset mode
@@ -229,6 +264,7 @@ func (os *TinyOS) ExecuteWithContext(ctx context.Context, input string) []shared
 	case "basic":
 		return os.cmdBasic(args)
 	case "chess":
+		os.SetInputMode(sessionID, InputModeChess)
 		return os.cmdChess(args, sessionID)
 	case "telnet":
 		return os.cmdTelnet(args)
@@ -280,6 +316,7 @@ func (os *TinyOS) ProcessCommand(sessionID string, input string) []shared.Messag
 			os.sessionMutex.Unlock()
 
 			logger.Info(logger.AreaTerminal, "Redirecting input to active chess game: %s", input)
+			os.SetInputMode(sessionID, InputModeChess)
 			// Handle chess input directly
 			messages := session.ChessGame.HandleInput(input)
 
@@ -300,7 +337,11 @@ func (os *TinyOS) ProcessCommand(sessionID string, input string) []shared.Messag
 							filteredMessages = append(filteredMessages, m)
 						}
 					}
-					// Add final message indicating return to TinyOS
+					// Switch back to OS_SHELL mode and add final message
+					filteredMessages = append(filteredMessages, shared.Message{
+						Type:    shared.MessageTypeMode,
+						Content: "OS_SHELL",
+					})
 					filteredMessages = append(filteredMessages, shared.Message{
 						Type:    shared.MessageTypeText,
 						Content: "Back to TinyOS.",
@@ -328,7 +369,7 @@ func (os *TinyOS) ProcessCommand(sessionID string, input string) []shared.Messag
 	// For commands that need the Session-ID, we add it as the first argument
 	if sessionID != "" {
 		switch cmd {
-		case "passwd", "whoami", "logout", "ls", "pwd", "cd", "mkdir", "cat", "write", "rm", "limits", "chat", "chathistory", "basic", "run", "edit", "view", "resources", "debug", "telnet":
+		case "passwd", "whoami", "logout", "ls", "pwd", "cd", "mkdir", "cat", "write", "rm", "limits", "chat", "chathistory", "basic", "run", "edit", "view", "resources", "debug", "telnet", "chess":
 			args = append([]string{sessionID}, args...)
 			logger.Debug(logger.AreaTerminal, "Added sessionID to args for command '%s', args length: %d", cmd, len(args))
 		}

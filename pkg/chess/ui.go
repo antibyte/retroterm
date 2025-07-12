@@ -21,16 +21,19 @@ type ChessUI struct {
 	SelectedSquare *Position
 	PlayerColor    Color
 	ShowCoords     bool
+	showingHelp    bool
 	Messages       []shared.Message
+	LastMoveText   string // Store the last move text for display
 }
 
 // NewChessUI creates a new chess UI
 func NewChessUI(difficulty int, playerColor Color) *ChessUI {
 	return &ChessUI{
-		Engine:      NewChessEngine(difficulty),
-		PlayerColor: playerColor,
-		ShowCoords:  true,
-		Messages:    make([]shared.Message, 0),
+		Engine:       NewChessEngine(difficulty),
+		PlayerColor:  playerColor,
+		ShowCoords:   true,
+		Messages:     make([]shared.Message, 0),
+		LastMoveText: "", // Initialize empty, will show "Game started" in RenderBoard
 	}
 }
 
@@ -67,7 +70,6 @@ func LoadBitmap(filename string) (string, error) {
 		filepath.Join("..", "chess_gfx", filename),
 		filepath.Join("..", "..", "chess_gfx", filename),
 		filepath.Join("..", "..", "..", "chess_gfx", filename),
-		filepath.Join("c:", "Users", "andre", "Desktop", "chess_gfx", filename), // Absolute path for Windows
 	}
 
 	var data []byte
@@ -101,7 +103,6 @@ func LoadSpritePixelData(filename string) ([]int, error) {
 		filepath.Join("..", "chess_gfx", filename),
 		filepath.Join("..", "..", "chess_gfx", filename),
 		filepath.Join("..", "..", "..", "chess_gfx", filename),
-		filepath.Join("c:", "Users", "andre", "Desktop", "chess_gfx", filename), // Absolute path for Windows
 	}
 
 	var file *os.File
@@ -156,21 +157,34 @@ func LoadSpritePixelData(filename string) ([]int, error) {
 
 // RenderBoard creates messages to render the chess board with graphics and positioned text
 func (ui *ChessUI) RenderBoard() []shared.Message {
-	logger.Debug(logger.AreaChess, "RenderBoard: Starting to render chess board")
+	logger.Debug(logger.AreaChess, "RenderBoard: Starting to render chess board.")
 	messages := make([]shared.Message, 0)
-
-	// Clear screen first
 	messages = append(messages, shared.Message{
-		Type: shared.MessageTypeClear,
-	}) // Display title centered above the board
-	// Board starts at Y=112, so place title a few lines above
+		Type:    shared.MessageTypeClear,
+		Content: "",
+	})
+
+	// Check if computer should make a move FIRST
+	computerMoveMessages := ui.CheckAndMakeComputerMove()
+	if len(computerMoveMessages) > 0 {
+		// If computer made a move, add the computer move messages
+		messages = append(messages, computerMoveMessages...)
+	}
+
+	// Status line in first line (row 1)
+	lastMoveInfo := ui.LastMoveText
+	if lastMoveInfo == "" {
+		lastMoveInfo = "Game started"
+	}
+	statusLine := fmt.Sprintf("%s (Enter quit to exit or help for help)", lastMoveInfo)
+
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeLocate,
-		Content: "36,3", // Center "TinyChess" (9 chars): (80-9)/2 = 35.5 ≈ 36, Y=3 for spacing above board
+		Content: "1,1", // Position 1,1 (column 1, row 1)
 	})
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeText,
-		Content: "TinyChess",
+		Content: statusLine,
 	})
 
 	// Load and display the board bitmap
@@ -234,12 +248,7 @@ func (ui *ChessUI) RenderBoard() []shared.Message {
 		})
 	}
 
-	// Check if computer should make a move before showing the board
-	computerMoveMessages := ui.CheckAndMakeComputerMove()
-	if len(computerMoveMessages) > 0 {
-		// If computer made a move, add the computer move messages
-		messages = append(messages, computerMoveMessages...)
-	}
+	// Computer move was already handled above
 
 	// Display pieces as sprites (render current board state after any computer move)
 	logger.Debug(logger.AreaChess, "RenderBoard: Starting to render chess pieces")
@@ -256,16 +265,36 @@ func (ui *ChessUI) RenderBoard() []shared.Message {
 	}
 	logger.Debug(logger.AreaChess, "RenderBoard: Rendered %d pieces, total messages: %d", pieceCount, len(messages))
 
-	// Add input prompt at bottom of screen
+
+	// Render the prompt after the board
+	messages = append(messages, ui.RenderPrompt()...)
+
+	return messages
+}
+
+// RenderPrompt creates messages to render the input prompt and position the cursor
+func (ui *ChessUI) RenderPrompt() []shared.Message {
+	messages := make([]shared.Message, 0)
+	
+	// Help text on line 22 (second to last line)
+	helpText := "Enter your move (eg. a2 a4) or type quit to exit:"
+	helpX := (80 - len(helpText)) / 2
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeLocate,
-		Content: "1,24", // Bottom of screen
+		Content: fmt.Sprintf("%d,22", helpX),
 	})
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeText,
-		Content: "Move (e.g. 'e2 e4'), 'help', or 'quit': ",
+		Content: helpText,
 	})
-
+	
+	// Position cursor centered on last line (line 23) without any prompt text
+	cursorX := 40 // Center of 80-column screen
+	messages = append(messages, shared.Message{
+		Type:    shared.MessageTypeLocate,
+		Content: fmt.Sprintf("%d,23", cursorX),
+	})
+	
 	return messages
 }
 
@@ -323,10 +352,6 @@ func (ui *ChessUI) renderPiece(piece *Piece, pos Position) []shared.Message {
 func (ui *ChessUI) renderTextBoard() []shared.Message {
 	messages := make([]shared.Message, 0)
 
-	// Clear screen first
-	messages = append(messages, shared.Message{
-		Type: shared.MessageTypeClear,
-	})
 	// Title
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeLocate,
@@ -367,7 +392,7 @@ func (ui *ChessUI) renderTextBoard() []shared.Message {
 	})
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeText,
-		Content: "Enter move (e.g. 'e2 e4'), 'help', or 'quit':",
+		Content: "Enter move (e.g. 'e2 e4'), 'help', or 'quit'):",
 	})
 
 	return messages
@@ -375,12 +400,25 @@ func (ui *ChessUI) renderTextBoard() []shared.Message {
 
 // HandleInput processes user input for chess moves
 func (ui *ChessUI) HandleInput(input string) []shared.Message {
+	logger.Info(logger.AreaChess, "HandleInput: Received input: %q, showingHelp: %t", input, ui.showingHelp)
 	messages := make([]shared.Message, 0)
+
+	// In help mode: any input (including empty/Enter) should close help
+	if ui.showingHelp {
+		logger.Info(logger.AreaChess, "HandleInput: Help mode - closing help with input: %q", input)
+		ui.showingHelp = false
+		// Render the board with status line and prompt
+		messages = append(messages, ui.RenderBoard()...)
+		messages = append(messages, ui.RenderPrompt()...)
+		return messages
+	}
 
 	// Parse move input (e.g., "e2 e4" or "e2-e4")
 	input = strings.TrimSpace(input)
 	input = strings.ToLower(input)
+	logger.Info(logger.AreaChess, "HandleInput: Processing lowercased input: %q", input)
 	if input == "quit" || input == "exit" {
+		logger.Info(logger.AreaChess, "HandleInput: Quit command received!")
 		// Signal that the chess game should be ended
 		messages = append(messages, shared.Message{
 			Type:    shared.MessageTypeClear,
@@ -397,62 +435,81 @@ func (ui *ChessUI) HandleInput(input string) []shared.Message {
 		return messages
 	}
 	if input == "help" {
-		// Show help and then return to board
-		helpMessages := ui.showHelp()
-		boardMessages := ui.RenderBoard()
-		return append(helpMessages, boardMessages...)
+		logger.Debug(logger.AreaChess, "HandleInput: Help command received, setting showingHelp to true and returning help messages.")
+		ui.showingHelp = true
+		return ui.showHelp()
 	}
+	logger.Debug(logger.AreaChess, "HandleInput: Processing as chess move.")
 	// Parse move
 	parts := strings.Fields(strings.ReplaceAll(input, "-", " "))
 	if len(parts) != 2 {
-		messages = append(messages, shared.Message{
-			Type:    shared.MessageTypeText,
-			Content: "Invalid move format. Use: e2 e4 or e2-e4",
-		})
+		logger.Debug(logger.AreaChess, "HandleInput: Invalid move format for input: %q", input)
+		// Update the status line to show the invalid move format
+		ui.LastMoveText = fmt.Sprintf("%s (invalid move)", input)
+
+		// Re-render the board with updated status line and prompt
+		messages = append(messages, ui.RenderBoard()...)
 		return messages
 	}
 
 	fromPos, err := ParsePosition(parts[0])
 	if err != nil {
+		logger.Debug(logger.AreaChess, "HandleInput: Invalid from position: %q, error: %v", parts[0], err)
 		messages = append(messages, shared.Message{
 			Type:    shared.MessageTypeText,
 			Content: "Invalid from position: " + parts[0],
 		})
+		// Re-render the prompt after an invalid move
+		messages = append(messages, ui.RenderPrompt()...)
 		return messages
 	}
 
 	toPos, err := ParsePosition(parts[1])
 	if err != nil {
+		logger.Debug(logger.AreaChess, "HandleInput: Invalid to position: %q, error: %v", parts[1], err)
 		messages = append(messages, shared.Message{
 			Type:    shared.MessageTypeText,
 			Content: "Invalid to position: " + parts[1],
 		})
+		// Re-render the prompt after an invalid move
+		messages = append(messages, ui.RenderPrompt()...)
 		return messages
 	}
 
 	// Check if it's the player's turn
 	if ui.Engine.CurrentPlayer != ui.PlayerColor {
+		logger.Debug(logger.AreaChess, "HandleInput: Not player's turn.")
 		messages = append(messages, shared.Message{
 			Type:    shared.MessageTypeText,
 			Content: "It's not your turn!",
 		})
+		// Re-render the prompt after an invalid move
+		messages = append(messages, ui.RenderPrompt()...)
 		return messages
 	}
 
 	// Try to make the move
 	err = ui.Engine.MakeMove(fromPos, toPos)
 	if err != nil {
-		messages = append(messages, shared.Message{
-			Type:    shared.MessageTypeText,
-			Content: "Invalid move: " + err.Error(),
-		})
+		logger.Debug(logger.AreaChess, "HandleInput: Invalid move: %v", err)
+		// Update the status line to show the invalid move
+		ui.LastMoveText = fmt.Sprintf("%s -> %s (invalid move)", parts[0], parts[1])
+
+		// Re-render the board with updated status line and prompt
+		messages = append(messages, ui.RenderBoard()...)
 		return messages
 	}
 	// Move successful
-	messages = append(messages, shared.Message{
-		Type:    shared.MessageTypeText,
-		Content: fmt.Sprintf("Move: %s -> %s", parts[0], parts[1]),
-	})
+	logger.Debug(logger.AreaChess, "HandleInput: Move successful: %s -> %s", parts[0], parts[1])
+
+	// Update the last move text for display
+	ui.LastMoveText = fmt.Sprintf("Player: %s -> %s", parts[0], parts[1])
+
+	// Don't send the move text as a separate message anymore since it's shown in status line
+	// messages = append(messages, shared.Message{
+	//	Type:    shared.MessageTypeText,
+	//	Content: fmt.Sprintf("Move: %s -> %s", parts[0], parts[1]),
+	// })
 
 	// Render updated board (which will automatically handle computer move if needed)
 	boardMessages := ui.RenderBoard()
@@ -473,10 +530,11 @@ func (ui *ChessUI) CheckAndMakeComputerMove() []shared.Message {
 
 	// Computer's turn - make automatic move
 	if ui.Engine.CurrentPlayer != ui.PlayerColor {
-		messages = append(messages, shared.Message{
-			Type:    shared.MessageTypeText,
-			Content: "Computer is thinking...",
-		})
+		// Don't show "Computer is thinking..." as it will interfere with the status line
+		// messages = append(messages, shared.Message{
+		//	Type:    shared.MessageTypeText,
+		//	Content: "Computer is thinking...",
+		// })
 
 		computerMove, err := ui.Engine.GetComputerMove()
 		if err != nil {
@@ -499,10 +557,14 @@ func (ui *ChessUI) CheckAndMakeComputerMove() []shared.Message {
 		fromNotation := PositionToNotation(computerMove.From)
 		toNotation := PositionToNotation(computerMove.To)
 
-		messages = append(messages, shared.Message{
-			Type:    shared.MessageTypeText,
-			Content: fmt.Sprintf("Computer moves: %s -> %s", fromNotation, toNotation),
-		})
+		// Update the last move text for display
+		ui.LastMoveText = fmt.Sprintf("Computer: %s -> %s", fromNotation, toNotation)
+
+		// Don't send the move text as a separate message anymore since it's shown in status line
+		// messages = append(messages, shared.Message{
+		//	Type:    shared.MessageTypeText,
+		//	Content: fmt.Sprintf("Computer moves: %s -> %s", fromNotation, toNotation),
+		// })
 
 		// Check if game is over after computer move
 		if ui.Engine.GameOver {
@@ -529,12 +591,15 @@ func (ui *ChessUI) CheckAndMakeComputerMove() []shared.Message {
 
 // showHelp displays help information using LOCATE for positioning
 func (ui *ChessUI) showHelp() []shared.Message {
+	logger.Debug(logger.AreaChess, "showHelp: Generating help messages.")
 	messages := make([]shared.Message, 0)
 
-	// Clear screen first
+	// Clear screen and set help mode
 	messages = append(messages, shared.Message{
-		Type: shared.MessageTypeClear,
+		Type:    shared.MessageTypeClear,
+		Content: "",
 	})
+
 	// Title
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeLocate,
@@ -544,6 +609,7 @@ func (ui *ChessUI) showHelp() []shared.Message {
 		Type:    shared.MessageTypeText,
 		Content: "Chess Help",
 	})
+
 	// Commands section
 	y := 5
 	helpLines := []string{
@@ -561,8 +627,9 @@ func (ui *ChessUI) showHelp() []shared.Message {
 		}()),
 		fmt.Sprintf("Difficulty: %d/3", ui.Engine.Difficulty),
 		"",
-		"Press any key to continue...",
+		"Press Enter to continue...",
 	}
+
 	for _, line := range helpLines {
 		messages = append(messages, shared.Message{
 			Type:    shared.MessageTypeLocate,
@@ -575,6 +642,12 @@ func (ui *ChessUI) showHelp() []shared.Message {
 		y++
 	}
 
+	// Position cursor at bottom of screen for "any key" input
+	messages = append(messages, shared.Message{
+		Type:    shared.MessageTypeLocate,
+		Content: "0,23", // Bottom line for next input
+	})
+
 	return messages
 }
 
@@ -586,9 +659,9 @@ func (ui *ChessUI) GetStatusMessage() string {
 			if *ui.Engine.Winner == Black {
 				winnerName = "Black"
 			}
-			return fmt.Sprintf("Game Over - %s wins!", winnerName)
+			return fmt.Sprintf("Game Over! %s wins!!", winnerName)
 		}
-		return "Game Over - Draw!"
+		return "Game Over! It's a draw!!"
 	}
 
 	currentPlayerName := "White"

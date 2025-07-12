@@ -59,7 +59,9 @@ Object.assign(window.RetroConsole, {
     inverseLines: [[], [], []],
     promptSymbol: "> ",
     input: "",
-    cursorPos: 0,    inputEnabled: true, // Standard: Eingabe aktiviert    runMode: false,     // RUN-Modus (INKEY$/Strg+C aktiv, normale Eingabe deaktiviert)
+    cursorPos: 0,    inputEnabled: true, // Standard: Eingabe aktiviert
+    inputMode: 0,       // 0: OS_SHELL, 1: BASIC, 2: CHESS, 3: EDITOR, 4: TELNET, 5: PAGER
+    runMode: false,     // RUN-Modus (INKEY$/Strg+C aktiv, normale Eingabe deaktiviert)
     passwordMode: false, // Passwort-Modus (Eingabe wird als * angezeigt)
     pagerMode: false,   // Pager-Modus (Einzeltasten-Eingabe für CAT-Pager)
     terminalStatus: "", // Status line for terminal mode (like pager status)
@@ -126,6 +128,9 @@ Object.assign(window.RetroConsole, {
     editorRows: 24,
     editorCols: 80,
     editorData: null, // Hält alle relevanten Editor-Daten vom Backend
+
+    // Chess help text to be shown above the input line in chess mode
+    chessHelpText: "",
     
     // Filename input mode variables
     filenameInputMode: false,
@@ -289,7 +294,10 @@ Object.assign(window.RetroConsole, {
                 }
             }
         }
-    },    drawTerminal: function() {        // WICHTIG: Im Editor-Modus nicht das Terminal zeichnen!
+    },
+
+    drawTerminal: function() {
+        // WICHTIG: Im Editor-Modus nicht das Terminal zeichnen!
         if (this.editorMode) {
             return;
         }
@@ -309,7 +317,7 @@ Object.assign(window.RetroConsole, {
         // NEU: Sicherstellen, dass imageSmoothingEnabled auch hier deaktiviert ist
         ctx.imageSmoothingEnabled = false;
 
-        // Hintergrund des Text-Canvas schwarz füllen (statt transparent)
+        // Hintergrund des Text-Canvas schwarz füllen (für alle Modi)
         ctx.fillStyle = '#000000';
         ctx.fillRect(0, 0, this.textCanvas.width, this.textCanvas.height);
         
@@ -331,32 +339,58 @@ Object.assign(window.RetroConsole, {
         // Statt 'M' verwenden wir einen Durchschnitt oder einen repräsentativen Charakter,
         // oder verlassen uns auf die berechnete this.CHAR_WIDTH, wenn die Schriftart wirklich monospaced ist.
         // Für den Moment verwenden wir die berechnete Breite, da FONT_FAMILY="monospace" gesetzt ist.
-        this.ACTUAL_CHAR_WIDTH = this.CHAR_WIDTH; // Annahme: Monospace-Schrift        // Text zeichnen - zuerst normale Lines, dann Screen Buffer für LOCATE        // Im Telnet-Modus: eine Zeile für Statuszeile reservieren
+        this.ACTUAL_CHAR_WIDTH = this.CHAR_WIDTH; // Annahme: Monospace-Schrift
+        
+        // Text zeichnen - zuerst normale Lines, dann Screen Buffer für LOCATE
+        // Im Telnet-Modus: eine Zeile für Statuszeile reservieren
         // Im Normal-Modus: ebenfalls eine Zeile für Statuszeile reservieren um Overflow zu vermeiden
         const availableRows = CFG.TEXT_ROWS - 1;
+        
+        // Ensure lines arrays are initialized
+        if (!this.lines) this.lines = [];
+        if (!this.inverseLines) this.inverseLines = [];
+        
+        // Initialize with basic content if empty
+        if (this.lines.length === 0) {
+            this.lines.push("RetroTerm ready");
+            this.lines.push(`InputMode: ${this.inputMode}`);
+            this.inverseLines.push([]);
+            this.inverseLines.push([]);
+        }
+        
+        // Declare variables outside the conditional block for later use
         let visibleLines = this.lines.slice(-availableRows);
         let visibleInverse = this.inverseLines.slice(-availableRows);
-        for (let i = 0; i < visibleLines.length; i++) {
+        
+        // In chess mode, suppress normal text lines to allow LOCATE-positioned text to show
+        if (this.inputMode !== 2 /* Chess */) {
+            // Render normal text lines (non-chess modes or debug info)
+            for (let i = 0; i < visibleLines.length; i++) {
             let line = visibleLines[i];
             let invArr = visibleInverse[i] || [];
             for (let col = 0; col < Math.min(line.length, CFG.TEXT_COLS); col++) {
                 const char = line[col];
                 const inverse = invArr[col] === true;
                 const x = padL + col * this.CHAR_WIDTH;
-                const y = padT + i * this.CHAR_HEIGHT;                if (inverse) {
+                const y = padT + i * this.CHAR_HEIGHT;
+                
+                if (inverse) {
                     ctx.fillStyle = CFG.BRIGHTNESS_LEVELS[15];
                     // Inverser Hintergrund: 2 Pixel vor Oberkante, 2 Pixel unter Grundlinie
                     const bgY = y - 2; // 2 Pixel vor der Oberkante des Textes
                     const bgHeight = this.CHAR_HEIGHT - 2; // Text-Höhe minus 2 Pixel (endet 2 Pixel vor nächster Linie)
                     ctx.fillRect(x, bgY, this.CHAR_WIDTH, bgHeight);
                     ctx.fillStyle = '#000000';
-                }else {
+                } else {
                     ctx.fillStyle = CFG.BRIGHTNESS_LEVELS[15];
                 }
                 ctx.fillText(char, x, y);
             }
-        }        // Screen Buffer rendern (LOCATE-Text überlagert normale Lines)
+        }
+        } // End of if (this.inputMode !== 2) block
+        // Screen Buffer rendern (LOCATE-Text überlagert normale Lines)
         // Sowohl im Telnet- als auch Normal-Modus: auf verfügbare Zeilen begrenzen
+        // Im Schachmodus: screenBuffer wird separat in der Chess-Eingabelogik verarbeitet, aber Titel wird hier gerendert
         if (this.screenBuffer) {
             const maxBufferRows = CFG.TEXT_ROWS - 1;
             for (let row = 0; row < Math.min(this.screenBuffer.length, maxBufferRows); row++) {
@@ -365,6 +399,9 @@ Object.assign(window.RetroConsole, {
                     if (cell.char !== ' ') { // Nur nicht-leere Zeichen rendern
                         const x = padL + col * this.CHAR_WIDTH;
                         const y = padT + row * this.CHAR_HEIGHT;
+                        
+                        // In chess mode: show all screenBuffer content
+                        // This includes status text, help text, and positioned content
                         
                         if (cell.inverse) {
                             // Inverser Text: schwarzer Text auf hellem Hintergrund
@@ -387,13 +424,20 @@ Object.assign(window.RetroConsole, {
             }
         }        // Calculate inputStartRow for both telnet and normal modes
         // Input area should start directly after the last output line
-        let inputStartRow = visibleLines.length;
+        let inputStartRow;
+        if (this.inputMode === 2 /* InputModeChess */) {
+            // In chess mode: input starts at cursor position from backend
+            inputStartRow = this.cursorY;
+        } else {
+            let visibleLines = this.lines.slice(-availableRows);
+            inputStartRow = visibleLines.length;
+        }
         
         // Eingabezeile - unterstützt jetzt auch mehrzeilige Eingabe
         // Im runMode verstecken wir den Prompt, aber zeigen weiterhin Eingaben an (z.B. INPUT-Befehle)
         // WICHTIG: Im Telnet-Modus wird KEINE lokale Eingabezeile gezeichnet (alles kommt vom Server)
-        // ABER: Im Telnet-Modus zeigen wir trotzdem einen Cursor an der aktuellen Position
-        if (!this.telnetMode) {
+        // Im Schachmodus wird die Eingabezeile vom Schach-UI selbst gezeichnet, aber der Cursor wird von hier verwaltet.
+        if (!this.telnetMode && this.inputMode !== 2 /* InputModeChess */) {
             let displayInput = this.input;
             
             // Im Passwort-Modus Eingabe durch Sterne ersetzen
@@ -435,8 +479,24 @@ Object.assign(window.RetroConsole, {
                     );
                 }
             }
-            // Old cursor logic removed - moved outside telnet mode check
-        } // End of if (!this.telnetMode) block
+        } else if (this.inputMode === 2 /* InputModeChess */) {
+            // In chess mode: only draw input buffer at cursor position from backend
+            // The cursor position comes from LOCATE messages sent by the backend
+            // Draw the input buffer at the precise cursor position set by backend LOCATE
+            let displayInput = this.input;
+            
+            // In password mode, replace input with stars
+            if (this.passwordMode) {
+                displayInput = '*'.repeat(this.input.length);
+            }
+            
+            // Chess mode respects LOCATE positioning from backend
+            const x = padL + this.cursorX * this.CHAR_WIDTH;
+            const y = padT + this.cursorY * this.CHAR_HEIGHT;
+            console.log(`[CHESS-DEBUG] Drawing input at cursorX=${this.cursorX}, cursorY=${this.cursorY}, screenX=${x}, screenY=${y}, input="${displayInput}"`);
+            ctx.fillStyle = CFG.BRIGHTNESS_LEVELS[15];
+            ctx.fillText(displayInput, x, y);
+        }
         
         // Check if LOCATE text (screenBuffer) extends beyond normal text lines for both modes
         if (this.screenBuffer) {
@@ -471,6 +531,12 @@ Object.assign(window.RetroConsole, {
                 // In telnet mode: Use server-managed cursor position
                 cursorCol = this.cursorX;
                 cursorRow = this.cursorY;
+            } else if (this.inputMode === 2 /* InputModeChess */) { // NEW CONDITION FOR CHESS MODE
+                // In chess mode: cursor position is managed by backend LOCATE messages
+                // Input follows the prompt, so cursor is at cursorX + input position
+                cursorCol = this.cursorX + this.cursorPos;
+                cursorRow = this.cursorY;
+                console.log(`[CHESS-DEBUG] Cursor position: cursorX=${this.cursorX}, cursorPos=${this.cursorPos}, cursorCol=${cursorCol}, cursorRow=${cursorRow}`);
             } else {
                 // In normal mode: Calculate cursor position based on input
                 const promptLength = this.runMode ? 0 : this.promptSymbol.length;
@@ -488,6 +554,10 @@ Object.assign(window.RetroConsole, {
                     // In telnet mode: Simple position calculation
                     finalCursorScreenX = padL + cursorCol * this.cursorAdvanceRate;
                     finalCursorScreenY = padT + cursorRow * this.CHAR_HEIGHT;
+                } else if (this.inputMode === 2 /* InputModeChess */) {
+                    // In chess mode: Cursor position is directly from this.cursorX, this.cursorY
+                    finalCursorScreenX = padL + (this.cursorX + this.cursorPos) * this.CHAR_WIDTH;
+                    finalCursorScreenY = padT + this.cursorY * this.CHAR_HEIGHT;
                 } else {
                     // In normal mode: Precise text measurement
                     const absoluteCursorCharIndex = (this.runMode ? 0 : this.promptSymbol.length) + this.cursorPos;
@@ -535,59 +605,17 @@ Object.assign(window.RetroConsole, {
             // Material neu erstellen für Shader-Updates - Dies sollte seltener passieren, nur wenn der Shader sich ändert.
             // Für reine Textur-Updates ist es nicht immer nötig und kann Performance kosten.
             // if (window.RetroGraphics && window.RetroGraphics.recreateMaterial) {
-            //     window.RetroGraphics.recreateMaterial();            // Fallback: Traditionelle Update-Methoden (sollten durch forceTextTextureUpdate abgedeckt sein)
-            this.textTexture.needsUpdate = true;        }        
+            //     window.RetroGraphics.recreateMaterial();
+            // }
+            
+            // Fallback: Traditionelle Update-Methoden (sollten durch forceTextTextureUpdate abgedeckt sein)
+            this.textTexture.needsUpdate = true;
+        }
+        
         // TELNET-SPEZIFISCHE ERGÄNZUNGEN: Statuszeile in der letzten Zeile
-        if (this.telnetMode) {
-            this.drawTelnetStatusLine(ctx, padL, padT);
-        } else if (this.terminalStatus) {
-            // Pager or other terminal status line
+        if (this.telnetMode || this.terminalStatus) {
             this.drawTerminalStatusLine(ctx, padL, padT);
         }
-    },
-
-    // Zeichnet die Telnet-Statuszeile in der letzten Zeile des Terminals
-    drawTelnetStatusLine: function(ctx, padL, padT) {
-        if (!this.telnetMode) return;
-        
-        // Statuszeile wird immer in der letzten Zeile (TEXT_ROWS - 1) gezeichnet
-        const statusRow = CFG.TEXT_ROWS - 1;
-        const statusY = padT + statusRow * this.CHAR_HEIGHT;
-        
-        // Hintergrund der Statuszeile (invertiert)
-        ctx.fillStyle = CFG.BRIGHTNESS_LEVELS[15]; // Heller Hintergrund
-        const bgY = statusY - 2; // 2 Pixel vor der Oberkante des Textes
-        const bgHeight = this.CHAR_HEIGHT - 2; // Text-Höhe minus 2 Pixel
-        ctx.fillRect(padL, bgY, CFG.TEXT_COLS * this.CHAR_WIDTH, bgHeight);
-        
-        // Statustext zusammenstellen
-        const serverName = this.telnetServerName || 'Telnet';
-        const connectionInfo = `Connected to ${serverName}`;
-        const exitInfo = 'Press Ctrl+X or ESC to exit';
-        
-        // Status-Text zentriert oder links/rechts aufgeteilt
-        let statusText;
-        const maxLength = CFG.TEXT_COLS;
-        
-        if ((connectionInfo.length + exitInfo.length + 3) <= maxLength) {
-            // Beide Texte passen in eine Zeile - links und rechts ausrichten
-            const padding = ' '.repeat(maxLength - connectionInfo.length - exitInfo.length);
-            statusText = connectionInfo + padding + exitInfo;
-        } else {
-            // Nur Verbindungsinfo, falls beide nicht passen
-            statusText = connectionInfo.substring(0, maxLength);
-        }
-        
-        // Statustext mit schwarzer Schrift auf hellem Hintergrund zeichnen
-        ctx.fillStyle = '#000000'; // Schwarzer Text für inverse Darstellung
-        for (let col = 0; col < Math.min(statusText.length, CFG.TEXT_COLS); col++) {
-            const char = statusText[col];
-            const x = padL + col * this.CHAR_WIDTH;
-            ctx.fillText(char, x, statusY);
-        }
-        
-        // Textfarbe für nachfolgende Zeichen zurücksetzen
-        ctx.fillStyle = CFG.BRIGHTNESS_LEVELS[15];
     },
 
     // Draws the terminal status line in the last row (for pager mode etc.)
@@ -620,11 +648,19 @@ Object.assign(window.RetroConsole, {
     handleBackendMessage: function(event) {
         try {
             let raw = typeof event.data === 'string' ? event.data.trim() : event.data;
+            console.log('[RetroConsole-DEBUG] Received raw backend message:', raw);
             if (typeof raw === 'string' && raw.length === 0) {
                 console.log('[FRONTEND-DEBUG] Empty string data received, ignoring.');
                 return;
-            }const processAndRouteResponse = (responseObject) => {
+            }
+            
+            const processAndRouteResponse = (responseObject) => {
                 const typeName = RESPONSE_TYPE_MAP[responseObject.type] || 'UNKNOWN';
+                
+                // Debug: Log all chess-related messages
+                if (this.inputMode === 2) {
+                    console.log(`[CHESS-DEBUG] Received message type ${responseObject.type} (${typeName}):`, responseObject);
+                }
 
                 if (typeName === 'EDITOR') {
                     this.handleEditorMessage(responseObject);
@@ -683,7 +719,13 @@ Object.assign(window.RetroConsole, {
     
     _processBackendResponse: function(response, typeName) { // typeName is now an argument
         // This switch handles all other types.
-        switch (typeName) {            case 'TEXT':
+        switch (typeName) {
+            case 'TEXT':
+                // Special handling: If chessHelp flag is set, store as chess help text
+                if (response.chessHelp === true && response.content !== undefined) {
+                    this.chessHelpText = String(response.content);
+                    return;
+                }
                 // Process TEXT messages directly in telnet mode
                 if (response.content !== undefined && response.content !== null) {
                     const contentStr = String(response.content);
@@ -698,19 +740,20 @@ Object.assign(window.RetroConsole, {
                         } catch (error) {
                             // Ignore errors
                         }
-                    }                    // Check if content is empty (whitespace only or empty string)
+                    }
+                    // Check if content is empty (whitespace only or empty string)
                     if (contentStr.trim().length === 0) {
                         // Don't add new line for empty content
                         return;
                     }
-                    
+
                     // LOCATE mode: place text at specific position
                     if (this.locateMode && this.cursorX !== undefined && this.cursorY !== undefined) {
                         // Use response.inverse if available, otherwise this.inverseMode
                         const isInverseLocate = (typeof response.inverse === 'boolean') ? response.inverse : this.inverseMode;
                         this.setTextAtPosition(this.cursorX, this.cursorY, contentStr, isInverseLocate);
-                        // Switch back to normal mode after LOCATE text
-                        this.locateMode = false;                        // Text was positioned - no further processing needed
+                        this.locateMode = false; // Reset after positioning
+                        // Text was positioned - no further processing needed
                         // this.drawTerminal(); // drawTerminal is called by the main handler
                         return;
                     } else {
@@ -729,7 +772,8 @@ Object.assign(window.RetroConsole, {
                             } else {
                                 this.lines.push(contentStr);
                                 this.inverseLines.push(Array(contentStr.length).fill(isInverse));
-                            }                        } else {
+                            }
+                        } else {
                             // Add new line(s)
                             const wrappedLines = this.wrapText(contentStr, CFG.TEXT_COLS);
                             for (let i = 0; i < wrappedLines.length; i++) {
@@ -970,7 +1014,31 @@ Object.assign(window.RetroConsole, {
                 }
                 break;
             case 'MODE':
-                // ... existing MODE logic ...
+                if (response.content !== undefined) {
+                    const mode = String(response.content).toUpperCase();
+                    switch (mode) {
+                        case 'OS_SHELL':
+                            this.inputMode = 0;
+                            break;
+                        case 'BASIC':
+                            this.inputMode = 1;
+                            break;
+                        case 'CHESS':
+                            this.inputMode = 2;
+                            break;
+                        case 'EDITOR':
+                            this.inputMode = 3;
+                            break;
+                        case 'TELNET':
+                            this.inputMode = 4;
+                            break;
+                        case 'PAGER':
+                            this.inputMode = 5;
+                            break;
+                        default:
+                            this.inputMode = 0; // Default to OS_SHELL if unknown
+                    }
+                }
                 if (window.RetroGraphics && typeof window.RetroGraphics.handleModeChange === 'function') {
                     window.RetroGraphics.handleModeChange(response.content); 
                 }
@@ -1138,10 +1206,14 @@ Object.assign(window.RetroConsole, {
                     if (coords.length === 2) {
                         // BUGFIX: BASIC uses 1-based coordinates, JavaScript 0-based
                         // Backend already sends 0-based coordinates
-                        this.cursorX = Math.max(0, parseInt(coords[0]) || 0);
-                        this.cursorY = Math.max(0, parseInt(coords[1]) || 0);
+                        const newX = Math.max(0, parseInt(coords[0]) || 0);
+                        const newY = Math.max(0, parseInt(coords[1]) || 0);
+                        console.log(`[CHESS-DEBUG] LOCATE received: ${response.content} -> setting cursorX=${newX}, cursorY=${newY} (inputMode=${this.inputMode})`);
+                        this.cursorX = newX;
+                        this.cursorY = newY;
                         if (this.cursorY >= CFG.TEXT_ROWS) this.cursorY = CFG.TEXT_ROWS - 1;
                         if (this.cursorX >= CFG.TEXT_COLS) this.cursorX = CFG.TEXT_COLS - 1;
+                        // LOCATE activates text placement mode for all modes
                         this.locateMode = true;
                         // this.drawTerminal(); // drawTerminal is called by the main handler
                     }
@@ -2344,7 +2416,8 @@ Object.assign(window.RetroConsole, {
             
             canvas.width = img.width;
             canvas.height = img.height;
-            ctx.drawImage(img, 0, 0);            console.log('[RetroConsole-BITMAP] Canvas created, size:', canvas.width, 'x', canvas.height);
+            ctx.drawImage(img, 0, 0);
+            console.log('[RetroConsole-BITMAP] Canvas created, size:', canvas.width, 'x', canvas.height);
               // Quantize to 16 brightness levels for retro effect and map to green tones
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
@@ -2428,16 +2501,9 @@ Object.assign(window.RetroConsole, {
                     
                     // Mark graphics as dirty so they get rendered in the next frame
                     window.RetroGraphics._graphics2DDirty = true;
-                    
-                    console.log('[RetroConsole-BITMAP] Bitmap drawn to persistent 2D graphics system successfully');
                 } catch (error) {
                     console.error('[RetroConsole-BITMAP] Error drawing bitmap to persistent 2D graphics:', error);
                 }
-            } else {
-                console.error('[RetroConsole-BITMAP] Persistent 2D graphics system not available');
-                console.error('[RetroConsole-BITMAP] RetroGraphics:', !!window.RetroGraphics);
-                console.error('[RetroConsole-BITMAP] persistent2DContext:', !!(window.RetroGraphics?.persistent2DContext || window.persistent2DContext));
-                console.error('[RetroConsole-BITMAP] persistent2DCanvas:', !!(window.RetroGraphics?.persistent2DCanvas || window.persistent2DCanvas));
             }
         };
         

@@ -955,9 +955,10 @@ func (c *Client) readPump() {
 			// Check if this is a telnet session to bypass all input filtering
 			isTelnetSession = c.handler.os.IsTelnetSessionActive(c.sessionID)
 			isPagerSession := c.handler.os.IsInCatPagerProcess(c.sessionID)
-			logger.Debug(logger.AreaTerminal, "CAT PAGER INPUT CHECK for session %s: pager_session=%t, input=%q",
-				c.sessionID, isPagerSession, input)
-			if !isTelnetSession && !isPagerSession && strings.TrimSpace(input) == "" && request.Type != 6 && request.Type != int(shared.MessageTypeEditor) {
+			isChessSession := c.handler.os.GetInputMode(c.sessionID) == 2 // InputModeChess
+			logger.Debug(logger.AreaTerminal, "CAT PAGER INPUT CHECK for session %s: pager_session=%t, chess_session=%t, input=%q",
+				c.sessionID, isPagerSession, isChessSession, input)
+			if !isTelnetSession && !isPagerSession && !isChessSession && strings.TrimSpace(input) == "" && request.Type != 6 && request.Type != int(shared.MessageTypeEditor) {
 				logger.Debug(logger.AreaTerminal, "Empty input, skipping")
 				continue
 			} // SAY_DONE special handling - skip for telnet sessions to avoid input corruption
