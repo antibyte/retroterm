@@ -7,10 +7,29 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/antibyte/retroterm/pkg/logger"
 )
+
+// Token pool for reducing memory allocations during parsing
+var tokenPool = sync.Pool{
+	New: func() interface{} {
+		return make([]token, 0, 50) // Pre-allocate reasonable capacity
+	},
+}
+
+// Helper functions to get and return token slices from pool
+func getTokenSlice() []token {
+	return tokenPool.Get().([]token)[:0] // Reset length but keep capacity
+}
+
+func returnTokenSlice(tokens []token) {
+	if tokens != nil && cap(tokens) > 0 {
+		tokenPool.Put(tokens)
+	}
+}
 
 type exprParser struct {
 	src    string
@@ -19,12 +38,22 @@ type exprParser struct {
 	tb     *TinyBASIC
 }
 
+// cleanup returns the token slice to the pool for reuse
+func (p *exprParser) cleanup() {
+	if p.tokens != nil {
+		returnTokenSlice(p.tokens)
+		p.tokens = nil
+	}
+}
+
 // evalExpression ist die zentrale Auswertungsfunktion für Ausdrücke
 func (b *TinyBASIC) evalExpression(expr string) (BASICValue, error) {
 	if strings.TrimSpace(expr) == "" {
 		return BASICValue{}, NewBASICError(ErrCategorySyntax, "EXPECTED_EXPRESSION", true, 0)
 	}
 	p := &exprParser{src: expr, tb: b}
+	defer p.cleanup() // Return token slice to pool when done
+	
 	err := p.tokenize()
 	if err != nil {
 		return BASICValue{}, WrapError(err, "EXPRESSION", true, 0)
@@ -56,130 +85,252 @@ func (b *TinyBASIC) evalExpression(expr string) (BASICValue, error) {
 
 // tokenize breaks the expression string into tokens.
 func (p *exprParser) tokenize() error {
-	p.tokens = make([]token, 0, len(p.src)/2+1) // Pre-allocate estimate.
+	p.tokens = getTokenSlice() // Use token pool for better performance
 	s := p.src
 	i := 0
 	for i < len(s) {
 		startPos := i
-		r, size := utf8.DecodeRuneInString(s[i:]) // Use runes for safety.
-
-		switch {
-		case r == ' ' || r == '\t':
-			i += size // Skip whitespace.
-		case r >= '0' && r <= '9' || r == '.': // Start of number.
-			numStart := i
-			foundDecimal := (r == '.')
-			i += size
-			for i < len(s) {
-				r2, size2 := utf8.DecodeRuneInString(s[i:])
-				if r2 >= '0' && r2 <= '9' {
-					i += size2
-				} else if r2 == '.' && !foundDecimal {
-					foundDecimal = true
-					i += size2
-				} else {
-					break
-				} // End of number part.
-			}
-			// Handle case like "." or "1."
-			numStr := s[numStart:i]
-			if numStr == "." {
-				return fmt.Errorf("invalid number '.' at position %d", numStart)
-			}
-			p.tokens = append(p.tokens, token{typ: tokNumber, val: numStr, pos: startPos})
-		case r == '"': // String literal.
-			//strStart := i + size // Position after opening quote.
-			i += size
-			content := &strings.Builder{}
-			foundEndQuote := false
-			for i < len(s) {
-				r2, size2 := utf8.DecodeRuneInString(s[i:])
-				if r2 == '"' {
-					// Check for escaped quote "".
-					if i+size2 < len(s) && s[i+size2] == '"' {
-						content.WriteRune('"') // Add single quote.
-						i += size2 * 2         // Skip both quotes.
+		
+		// ASCII Fast-Path: Handle ASCII characters (0-127) directly without UTF-8 decoding
+		if i < len(s) && s[i] < 128 {
+			c := s[i]
+			switch {
+			case c == ' ' || c == '\t':
+				i++ // Skip whitespace.
+			case (c >= '0' && c <= '9') || c == '.': // Start of number.
+				numStart := i
+				foundDecimal := (c == '.')
+				i++
+				for i < len(s) && s[i] < 128 {
+					c2 := s[i]
+					if c2 >= '0' && c2 <= '9' {
+						i++
+					} else if c2 == '.' && !foundDecimal {
+						foundDecimal = true
+						i++
 					} else {
-						foundEndQuote = true
-						i += size2 // Consume closing quote.
+						break
+					} // End of number part.
+				}
+				// Handle remaining non-ASCII digits if any
+				for i < len(s) {
+					r2, size2 := utf8.DecodeRuneInString(s[i:])
+					if r2 >= '0' && r2 <= '9' {
+						i += size2
+					} else if r2 == '.' && !foundDecimal {
+						foundDecimal = true
+						i += size2
+					} else {
 						break
 					}
-				} else {
-					content.WriteRune(r2)
-					i += size2
 				}
-			}
-			if !foundEndQuote {
-				return NewBASICError(ErrCategorySyntax, "MISSING_QUOTES", true, 0)
-			}
-			p.tokens = append(p.tokens, token{typ: tokString, val: content.String(), pos: startPos})
-		case r == '(':
-			p.tokens = append(p.tokens, token{typ: tokLParen, val: "(", pos: startPos})
-			i += size
-		case r == ')':
-			p.tokens = append(p.tokens, token{typ: tokRParen, val: ")", pos: startPos})
-			i += size
-		case r == ',':
-			p.tokens = append(p.tokens, token{typ: tokComma, val: ",", pos: startPos})
-			i += size
-		case r == '#':
-			p.tokens = append(p.tokens, token{typ: tokHash, val: "#", pos: startPos})
-			i += size
-		case r == '+' || r == '-' || r == '*' || r == '/' || r == '^': // Arithmetic operators.
-			p.tokens = append(p.tokens, token{typ: tokOp, val: string(r), pos: startPos})
-			i += size
-		case r == '=' || r == '<' || r == '>': // Comparison operators.
-			opStart := i
-			op := string(r)
-			i += size
-			if i < len(s) {
-				nextChar := s[i] // Peek next byte.
-				if (r == '<' && (nextChar == '>' || nextChar == '=')) || (r == '>' && nextChar == '=') {
-					op += string(nextChar)
-					i++ // Consume second char of operator.
+				// Handle case like "." or "1."
+				numStr := s[numStart:i]
+				if numStr == "." {
+					return fmt.Errorf("invalid number '.' at position %d", numStart)
 				}
-			}
-			p.tokens = append(p.tokens, token{typ: tokOp, val: op, pos: opStart})
-		case isAlpha(byte(r)): // Identifier (variable or function).
-			identStart := i
-			i += size
-			for i < len(s) {
-				r2, size2 := utf8.DecodeRuneInString(s[i:])
-				if isAlphaNum(byte(r2)) || byte(r2) == '_' {
-					i += size2
-				} else {
-					break
+				p.tokens = append(p.tokens, token{typ: tokNumber, val: numStr, pos: startPos})
+			case c == '"': // String literal (ASCII Fast-Path).
+				i++ // Skip opening quote
+				content := &strings.Builder{}
+				foundEndQuote := false
+				for i < len(s) {
+					if s[i] < 128 {
+						// ASCII Fast-Path for string content
+						if s[i] == '"' {
+							// Check for escaped quote "".
+							if i+1 < len(s) && s[i+1] == '"' {
+								content.WriteByte('"') // Add single quote.
+								i += 2                 // Skip both quotes.
+							} else {
+								foundEndQuote = true
+								i++ // Consume closing quote.
+								break
+							}
+						} else {
+							content.WriteByte(s[i])
+							i++
+						}
+					} else {
+						// Fall back to UTF-8 for non-ASCII characters
+						r2, size2 := utf8.DecodeRuneInString(s[i:])
+						if r2 == '"' {
+							// Check for escaped quote "".
+							if i+size2 < len(s) && s[i+size2] == '"' {
+								content.WriteRune('"') // Add single quote.
+								i += size2 * 2         // Skip both quotes.
+							} else {
+								foundEndQuote = true
+								i += size2 // Consume closing quote.
+								break
+							}
+						} else {
+							content.WriteRune(r2)
+							i += size2
+						}
+					}
 				}
-			}
-			// Check for optional trailing '$'.
-			if i < len(s) && s[i] == '$' {
-				// Ensure $ is last or followed by non-alphanum.
-				isLast := (i+1 == len(s))
-				var nextRune rune = 0
-				if !isLast {
-					nextRune, _ = utf8.DecodeRuneInString(s[i+1:])
+				if !foundEndQuote {
+					return NewBASICError(ErrCategorySyntax, "MISSING_QUOTES", true, 0)
 				}
-				if isLast || !isAlphaNum(byte(nextRune)) {
-					i++ // Include '$'.
+				p.tokens = append(p.tokens, token{typ: tokString, val: content.String(), pos: startPos})
+			case c == '(':
+				p.tokens = append(p.tokens, token{typ: tokLParen, val: "(", pos: startPos})
+				i++
+			case c == ')':
+				p.tokens = append(p.tokens, token{typ: tokRParen, val: ")", pos: startPos})
+				i++
+			case c == ',':
+				p.tokens = append(p.tokens, token{typ: tokComma, val: ",", pos: startPos})
+				i++
+			case c == '#':
+				p.tokens = append(p.tokens, token{typ: tokHash, val: "#", pos: startPos})
+				i++
+			case c == '+' || c == '-' || c == '*' || c == '/' || c == '^': // Arithmetic operators.
+				p.tokens = append(p.tokens, token{typ: tokOp, val: string(c), pos: startPos})
+				i++
+			case c == '=' || c == '<' || c == '>': // Comparison operators (ASCII Fast-Path).
+				opStart := i
+				op := string(c)
+				i++
+				if i < len(s) && s[i] < 128 {
+					nextChar := s[i] // Peek next byte.
+					if (c == '<' && (nextChar == '>' || nextChar == '=')) || (c == '>' && nextChar == '=') {
+						op += string(nextChar)
+						i++ // Consume second char of operator.
+					}
 				}
-			} // Prüfe, ob es sich um den MOD-Operator oder logische Operatoren handelt
-			identVal := s[identStart:i]
-			upperVal := strings.ToUpper(identVal)
+				p.tokens = append(p.tokens, token{typ: tokOp, val: op, pos: opStart})
+			case isAlpha(c): // Identifier (variable or function) - ASCII Fast-Path.
+				identStart := i
+				i++
+				// ASCII fast-path for identifier scanning
+				for i < len(s) && s[i] < 128 && (isAlphaNum(s[i]) || s[i] == '_') {
+					i++
+				}
+				// Handle remaining non-ASCII identifier characters if any
+				for i < len(s) {
+					r2, size2 := utf8.DecodeRuneInString(s[i:])
+					if isAlphaNum(byte(r2)) || byte(r2) == '_' {
+						i += size2
+					} else {
+						break
+					}
+				}
+				// Check for optional trailing '$'.
+				if i < len(s) && s[i] == '$' {
+					// Ensure $ is last or followed by non-alphanum.
+					isLast := (i+1 == len(s))
+					var nextRune rune = 0
+					if !isLast {
+						if s[i+1] < 128 {
+							nextRune = rune(s[i+1])
+						} else {
+							nextRune, _ = utf8.DecodeRuneInString(s[i+1:])
+						}
+					}
+					if isLast || !isAlphaNum(byte(nextRune)) {
+						i++ // Include '$'.
+					}
+				}
+				identVal := s[identStart:i]
+				upperVal := strings.ToUpper(identVal)
 
-			// Verbesserte Erkennung von Operatoren - verwende immer konsistente Großschreibung
-			switch upperVal {
-			case "MOD":
-				p.tokens = append(p.tokens, token{typ: tokOp, val: "MOD", pos: identStart})
-			case "AND":
-				p.tokens = append(p.tokens, token{typ: tokOp, val: "AND", pos: identStart})
-			case "OR":
-				p.tokens = append(p.tokens, token{typ: tokOp, val: "OR", pos: identStart})
+				// Improved operator recognition - always use consistent uppercase
+				switch upperVal {
+				case "MOD":
+					p.tokens = append(p.tokens, token{typ: tokOp, val: "MOD", pos: identStart})
+				case "AND":
+					p.tokens = append(p.tokens, token{typ: tokOp, val: "AND", pos: identStart})
+				case "OR":
+					p.tokens = append(p.tokens, token{typ: tokOp, val: "OR", pos: identStart})
+				default:
+					p.tokens = append(p.tokens, token{typ: tokIdent, val: identVal, pos: identStart})
+				}
 			default:
-				// Normaler Bezeichner
-				p.tokens = append(p.tokens, token{typ: tokIdent, val: identVal, pos: identStart})
+				return fmt.Errorf("unexpected character '%c' at position %d", c, startPos)
 			}
-		default:
-			return fmt.Errorf("unexpected character '%c' at position %d", r, startPos)
+		} else {
+			// Non-ASCII character - fall back to UTF-8 processing
+			r, size := utf8.DecodeRuneInString(s[i:])
+			
+			switch {
+			case r == ' ' || r == '\t':
+				i += size // Skip whitespace.
+			case r >= '0' && r <= '9' || r == '.': // Start of number.
+				numStart := i
+				foundDecimal := (r == '.')
+				i += size
+				for i < len(s) {
+					r2, size2 := utf8.DecodeRuneInString(s[i:])
+					if r2 >= '0' && r2 <= '9' {
+						i += size2
+					} else if r2 == '.' && !foundDecimal {
+						foundDecimal = true
+						i += size2
+					} else {
+						break
+					} // End of number part.
+				}
+				// Handle case like "." or "1."
+				numStr := s[numStart:i]
+				if numStr == "." {
+					return fmt.Errorf("invalid number '.' at position %d", numStart)
+				}
+				p.tokens = append(p.tokens, token{typ: tokNumber, val: numStr, pos: startPos})
+			case r == '=' || r == '<' || r == '>': // Comparison operators.
+				opStart := i
+				op := string(r)
+				i += size
+				if i < len(s) {
+					nextChar := s[i] // Peek next byte.
+					if (r == '<' && (nextChar == '>' || nextChar == '=')) || (r == '>' && nextChar == '=') {
+						op += string(nextChar)
+						i++ // Consume second char of operator.
+					}
+				}
+				p.tokens = append(p.tokens, token{typ: tokOp, val: op, pos: opStart})
+			case isAlpha(byte(r)): // Identifier (variable or function).
+				identStart := i
+				i += size
+				for i < len(s) {
+					r2, size2 := utf8.DecodeRuneInString(s[i:])
+					if isAlphaNum(byte(r2)) || byte(r2) == '_' {
+						i += size2
+					} else {
+						break
+					}
+				}
+				// Check for optional trailing '$'.
+				if i < len(s) && s[i] == '$' {
+					// Ensure $ is last or followed by non-alphanum.
+					isLast := (i+1 == len(s))
+					var nextRune rune = 0
+					if !isLast {
+						nextRune, _ = utf8.DecodeRuneInString(s[i+1:])
+					}
+					if isLast || !isAlphaNum(byte(nextRune)) {
+						i++ // Include '$'.
+					}
+				} // Check if it's the MOD operator or logical operators
+				identVal := s[identStart:i]
+				upperVal := strings.ToUpper(identVal)
+
+				// Improved operator recognition - always use consistent uppercase
+				switch upperVal {
+				case "MOD":
+					p.tokens = append(p.tokens, token{typ: tokOp, val: "MOD", pos: identStart})
+				case "AND":
+					p.tokens = append(p.tokens, token{typ: tokOp, val: "AND", pos: identStart})
+				case "OR":
+					p.tokens = append(p.tokens, token{typ: tokOp, val: "OR", pos: identStart})
+				default:
+					// Normal identifier
+					p.tokens = append(p.tokens, token{typ: tokIdent, val: identVal, pos: identStart})
+				}
+			default:
+				return fmt.Errorf("unexpected character '%c' at position %d", r, startPos)
+			}
 		}
 	}
 	p.tokens = append(p.tokens, token{typ: tokEOF, pos: i})
@@ -449,11 +600,8 @@ func (p *exprParser) parsePrimary() (BASICValue, error) {
 			// Direkter Zugriff ohne Locks - String-Zugriffe sind in Go atomisch
 			return BASICValue{StrValue: p.tb.currentKey, IsNumeric: false}, nil
 		}
-		// 1. Versuchen wir zuerst mit dem ursprünglichen Namen (mit Unterstrichen)
-		if v, ok := p.tb.variables[identName]; ok {
-			return v, nil
-		}
-		// 2. Dann mit dem Namen in Großbuchstaben
+		// Variable Normalisierung: Verwende immer Großbuchstaben für Lookups
+		// Dies eliminiert doppelte Map-Lookups und verbessert Performance
 		if v, ok := p.tb.variables[identNameUpper]; ok {
 			return v, nil
 		}

@@ -87,20 +87,11 @@ func (b *TinyBASIC) cmdLet(args string) error {
 		} else {
 			return NewBASICError(ErrCategorySyntax, "INVALID_ARRAY_DIMENSIONS", b.currentLine == 0, b.currentLine).WithCommand("LET")
 		}
-		b.variables[arrayVarName] = value
+		// Variable Normalisierung: Speichere alle Variablen in Großbuchstaben  
+		b.variables[strings.ToUpper(arrayVarName)] = value
 	} else {
-		b.variables[finalVarNameToValidate] = value // Store with the validated name (uppercase, no index part)
-
-		// Handle variable names with underscores in the original case (before ToUpper)
-		// This is a specific requirement to maintain compatibility with certain BASIC dialects,
-		// where \`my_var\` and \`MYVAR\` could be treated differently or \`my_var\` is used directly.
-		// Here, \`originalVarNameWithCase\` is used, which contains the name before \`ToUpper\`.
-		if strings.Contains(originalVarNameWithCase, "_") && !strings.Contains(originalVarNameWithCase, "(") { // Only store if it differs from the already stored \`finalVarNameToValidate\`
-			// and no array brackets were present in the original name (since arrays are treated differently).
-			if strings.ToUpper(originalVarNameWithCase) != finalVarNameToValidate { // Ensure we don't store the same thing twice
-				b.variables[originalVarNameWithCase] = value
-			}
-		}
+		// Variable Normalisierung: Verwende immer Großbuchstaben für konsistente Speicherung
+		b.variables[strings.ToUpper(finalVarNameToValidate)] = value
 	}
 
 	return nil

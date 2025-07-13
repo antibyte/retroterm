@@ -350,12 +350,9 @@ Object.assign(window.RetroConsole, {
         if (!this.lines) this.lines = [];
         if (!this.inverseLines) this.inverseLines = [];
         
-        // Initialize with basic content if empty
+        // Initialize empty arrays if needed
         if (this.lines.length === 0) {
-            this.lines.push("RetroTerm ready");
-            this.lines.push(`InputMode: ${this.inputMode}`);
-            this.inverseLines.push([]);
-            this.inverseLines.push([]);
+            // No default content needed - let the backend provide initial messages
         }
         
         // Declare variables outside the conditional block for later use

@@ -6,6 +6,7 @@ import (
 	"log"
 	"math/rand"
 	"os" // Added for debugFP
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,81 @@ import (
 // Helper function for TinyBASIC debug logging that respects configuration
 func tinyBasicDebugLog(format string, args ...interface{}) {
 	logger.Debug(logger.AreaTinyBasic, format, args...)
+}
+
+// Performance Optimizations: String Interning and Compiled Patterns
+var (
+	// String interning cache for frequently used strings
+	internedStrings = make(map[string]string)
+	internMutex     sync.RWMutex
+	
+	// Compiled regex patterns for statement splitting (compiled once, reused many times)
+	colonSplitPattern = regexp.MustCompile(`([^"]*"[^"]*")*[^"]*:`)
+	remPattern        = regexp.MustCompile(`^\s*REM\b`)
+	ifThenPattern     = regexp.MustCompile(`^\s*IF\s+.*\s+THEN\s+`)
+)
+
+// internString returns an interned version of the string to reduce memory usage
+func internString(s string) string {
+	if len(s) > 50 { // Don't intern very long strings
+		return s
+	}
+	
+	internMutex.RLock()
+	if interned, exists := internedStrings[s]; exists {
+		internMutex.RUnlock()
+		return interned
+	}
+	internMutex.RUnlock()
+	
+	internMutex.Lock()
+	defer internMutex.Unlock()
+	
+	// Double-check after acquiring write lock
+	if interned, exists := internedStrings[s]; exists {
+		return interned
+	}
+	
+	// Limit cache size to prevent memory leaks
+	if len(internedStrings) > 1000 {
+		// Clear cache if it gets too large
+		internedStrings = make(map[string]string)
+	}
+	
+	internedStrings[s] = s
+	return s
+}
+
+// BASICValue object pool for reducing memory allocations
+var basicValuePool = sync.Pool{
+	New: func() interface{} {
+		return &BASICValue{}
+	},
+}
+
+// getBASICValue gets a BASICValue from the pool
+func getBASICValue() *BASICValue {
+	return basicValuePool.Get().(*BASICValue)
+}
+
+// returnBASICValue returns a BASICValue to the pool after clearing it
+func returnBASICValue(v *BASICValue) {
+	if v != nil {
+		// Clear the value before returning to pool
+		v.NumValue = 0
+		v.StrValue = ""
+		v.IsNumeric = false
+		basicValuePool.Put(v)
+	}
+}
+
+// Helper functions for creating BASICValues from the pool
+func newNumericBASICValue(num float64) BASICValue {
+	return BASICValue{NumValue: num, IsNumeric: true}
+}
+
+func newStringBASICValue(str string) BASICValue {
+	return BASICValue{StrValue: str, IsNumeric: false}
 }
 
 // ErrExit wird zurückgegeben, wenn der EXIT-Befehl ausgeführt wird.
@@ -605,7 +681,7 @@ func (b *TinyBASIC) ExecuteInputResponse(input string) []shared.Message {
 	// Assign the input value to the variable.
 	var assignErr error
 	if strings.HasSuffix(varName, "$") { // String variable
-		b.variables[varName] = BASICValue{StrValue: input, IsNumeric: false}
+		b.variables[strings.ToUpper(varName)] = BASICValue{StrValue: input, IsNumeric: false}
 	} else { // Numeric variable
 		// Attempt to parse the input as a float.
 		val, err := strconv.ParseFloat(input, 64)
@@ -614,7 +690,7 @@ func (b *TinyBASIC) ExecuteInputResponse(input string) []shared.Message {
 			b.inputVar = varName // Restore the input request flag
 			assignErr = WrapError(ErrInvalidExpression, "INPUT", false, b.currentLine)
 		} else {
-			b.variables[varName] = BASICValue{NumValue: val, IsNumeric: true}
+			b.variables[strings.ToUpper(varName)] = BASICValue{NumValue: val, IsNumeric: true}
 		}
 	}
 
@@ -794,23 +870,23 @@ func (b *TinyBASIC) runProgramInternal(ctx context.Context) {
 			time.Sleep(time.Millisecond)
 		}
 
+		// Execution Loop Batching: Reduce lock granularity by batching state operations
 		b.mu.Lock()
 		if !b.running {
 			b.mu.Unlock()
 			break
 		}
 		currentLine := b.currentLine
+		code, ok := b.program[currentLine]
 		b.mu.Unlock()
 
+		// Early exit checks without additional locking
 		if currentLine == 0 {
 			b.mu.Lock()
 			b.running = false
 			b.mu.Unlock()
 			break
 		}
-		b.mu.Lock()
-		code, ok := b.program[currentLine]
-		b.mu.Unlock()
 		if !ok {
 			b.mu.Lock()
 			b.running = false
@@ -1362,31 +1438,28 @@ func (b *TinyBASIC) FormatErrorForDisplay(originalErr error, statementContext ..
 // wobei Strings und andere Syntaxelemente berücksichtigt werden.
 // REM-Kommentare werden nicht aufgeteilt, da alles nach REM als Kommentar gilt.
 func (b *TinyBASIC) splitStatementsByColon(line string) []string {
-	// Überprüfe zuerst, ob die Zeile mit REM beginnt
+	// Performance optimization: Quick checks using pre-compiled patterns
 	trimmed := strings.TrimSpace(line)
-	upperTrimmed := strings.ToUpper(trimmed)
-
-	if strings.HasPrefix(upperTrimmed, "REM") {
-		// Wenn die Zeile mit REM beginnt, ist sie eine einzelne Anweisung (der Kommentar selbst)
-		// Keine weitere Aufteilung erforderlich.
-		return []string{line} // Gebe die Originalzeile zurück, um Groß-/Kleinschreibung und Leerzeichen nach REM beizubehalten
+	
+	// Fast REM check using compiled pattern
+	if remPattern.MatchString(trimmed) {
+		return []string{line}
 	}
-
-	// IF-THEN-Anweisungen werden nach THEN nicht durch Doppelpunkte aufgeteilt.
-	// Alles nach THEN ist Teil der Konsequenz der IF-Anweisung.
-	if strings.HasPrefix(upperTrimmed, "IF ") && strings.Contains(upperTrimmed, " THEN ") {
-		// Diese vereinfachte Logik könnte problematisch sein, wenn Doppelpunkte *vor* THEN erscheinen.
-		// Im Moment wird davon ausgegangen, dass typische "IF cond THEN action1 : action2" kein Standard-BASIC sind,
-		// oder "action1 : action2" vom IF-Befehl als einzelner Block behandelt wird.
-		// Robuster wäre es, die Aufteilung nur *nach* "THEN" zu vermeiden.
-		// Standard-BASIC hat jedoch normalerweise "IF cond THEN statement" oder "IF cond THEN line_number".
-		// Mehrere Anweisungen nach THEN erfordern normalerweise, dass sie in nachfolgenden Zeilen stehen oder einen Block implizieren.
-		// Im Moment wird, wenn " THEN " existiert, die gesamte Zeile als eine für den IF-Handler behandelt.
+	
+	// Fast IF-THEN check using compiled pattern  
+	if ifThenPattern.MatchString(trimmed) {
+		return []string{line}
+	}
+	
+	// Performance optimization: if no colons, return early
+	if !strings.Contains(trimmed, ":") {
 		return []string{line}
 	}
 
-	var statements []string
+	// Use efficient string splitting with pre-allocated slice
+	statements := make([]string, 0, 4) // Pre-allocate for common case
 	var currentStatement strings.Builder
+	currentStatement.Grow(len(trimmed) / 2) // Pre-allocate builder capacity
 	inString := false
 
 	for i := 0; i < len(trimmed); i++ { // Iteriere über die getrimmte Zeile
@@ -1410,52 +1483,55 @@ func (b *TinyBASIC) splitStatementsByColon(line string) []string {
 				inString = true
 				currentStatement.WriteByte('"')
 			} else if char == ':' {
-				// Ende einer Anweisung
-				statements = append(statements, strings.TrimSpace(currentStatement.String()))
+				// End of statement - intern the result for memory efficiency
+				stmt := strings.TrimSpace(currentStatement.String())
+				if len(stmt) > 0 {
+					statements = append(statements, internString(stmt))
+				}
 				currentStatement.Reset()
 
-				// Prüfe, ob das nächste Statement mit REM beginnt
+				// Check if next statement starts with REM using compiled pattern
 				remainingLine := strings.TrimSpace(trimmed[i+1:])
-				if strings.HasPrefix(strings.ToUpper(remainingLine), "REM") {
-					// Der Rest der Zeile ist ein REM-Kommentar
-					statements = append(statements, remainingLine)
-					break // Beende die Verarbeitung; der Rest ist ein Kommentar
+				if remPattern.MatchString(remainingLine) {
+					// Rest of line is a REM comment
+					statements = append(statements, internString(remainingLine))
+					break // Stop processing; rest is comment
 				}
 			} else {
 				// Teil einer Anweisung (könnte der Anfang von REM sein)
 				// Prüfe, ob dies der Anfang eines REM-Schlüsselworts ist
 				// Wir müssen von trimmed[i:] prüfen
-				// Stelle sicher, dass strings.ToUpper für den "REM"-Vergleich verwendet wird, um die Robustheit zu gewährleisten
-				// Ein REM-Befehl hier bedeutet, dass es sich um einen Kommentar für den Rest der Zeile handelt.
-				if strings.HasPrefix(strings.ToUpper(trimmed[i:]), "REM") {
-					// Zuerst die bisher gesammelte Anweisung hinzufügen (falls vorhanden)
+				// Use compiled pattern for REM detection
+				if remPattern.MatchString(trimmed[i:]) {
+					// First add any collected statement
 					if currentStatement.Len() > 0 {
-						statements = append(statements, strings.TrimSpace(currentStatement.String()))
-						currentStatement.Reset() // Zurücksetzen für die REM-Anweisung
+						stmt := strings.TrimSpace(currentStatement.String())
+						if len(stmt) > 0 {
+							statements = append(statements, internString(stmt))
+						}
+						currentStatement.Reset()
 					}
-					// Dann den gesamten Rest der Zeile als REM-Anweisung hinzufügen
-					statements = append(statements, strings.TrimSpace(trimmed[i:]))
-					break // Beende die Verarbeitung dieser Zeile; der Rest ist ein Kommentar
+					// Then add entire rest of line as REM statement
+					statements = append(statements, internString(strings.TrimSpace(trimmed[i:])))
+					break // Stop processing; rest is comment
 				} else {
-					currentStatement.WriteByte(char) // Ursprüngliches Verhalten, wenn nicht REM
+					currentStatement.WriteByte(char) // Normal character processing
 				}
 			}
 		}
 	}
 
-	// Füge jede verbleibende Anweisung hinzu
+	// Add final statement if non-empty
 	if currentStatement.Len() > 0 {
-		statements = append(statements, strings.TrimSpace(currentStatement.String()))
-	}
-
-	// Filtere leere Anweisungen heraus, die durch mehrere Doppelpunkte entstehen könnten, z.B. "PRINT :: PRINT"
-	var result []string
-	for _, stmt := range statements {
-		if stmt != "" {
-			result = append(result, stmt)
+		stmt := strings.TrimSpace(currentStatement.String())
+		if len(stmt) > 0 {
+			statements = append(statements, internString(stmt))
 		}
 	}
-	return result
+
+	// Note: Empty statements are already filtered out during processing
+	// No need for additional filtering loop - this improves performance
+	return statements
 }
 
 // isValidVarNameInternal prüft, ob ein Name ein gültiger Variablenname für Zuweisungen ist.
