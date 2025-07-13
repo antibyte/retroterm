@@ -1,0 +1,3 @@
+feat: Update vendored dependencies
+
+Updated vendored dependencies after running `go mod vendor` to resolve build issues.

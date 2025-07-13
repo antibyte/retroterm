@@ -253,12 +253,12 @@ async function setupWebSocket() {
                 console.error('RetroConsole.handleBackendMessage not available');
             }
         };        ws.onclose = (event) => {
-            console.log('[FRONTEND-DEBUG] WebSocket connection closed:', {
-                timestamp: new Date().toISOString(),
-                code: event.code,
-                reason: event.reason,
-                wasClean: event.wasClean
-            });
+            // console.log('[FRONTEND-DEBUG] WebSocket connection closed:', {
+            //     timestamp: new Date().toISOString(),
+            //     code: event.code,
+            //     reason: event.reason,
+            //     wasClean: event.wasClean
+            // });
             
             // Verhindere Recovery-Versuche, wenn bereits einer läuft
             if (window.sessionRecoveryInProgress) {
@@ -275,10 +275,10 @@ async function setupWebSocket() {
         };
 
         ws.onerror = (error) => {
-            console.log('[FRONTEND-DEBUG] WebSocket error occurred:', {
-                timestamp: new Date().toISOString(),
-                error: error
-            });
+            // console.log('[FRONTEND-DEBUG] WebSocket error occurred:', {
+            //     timestamp: new Date().toISOString(),
+            //     error: error
+            // });
 
             // Verhindere Recovery-Versuche, wenn bereits einer läuft
             if (window.sessionRecoveryInProgress) {
@@ -456,6 +456,21 @@ function setupInputHandling() {
                     window.RetroConsole.cursorPos = 0;
                     window.RetroConsole.drawTerminal();
                       } else {
+                    // Check if we are in chess mode. If so, the chess UI handles its own input display.
+                    if (window.RetroConsole && window.RetroConsole.inputMode === 2 /* InputModeChess */) {
+                        const inputMessage = {
+                            type: 1,
+                            content: window.RetroConsole.input
+                        };
+                        if (sendMessageWithSessionID(inputMessage)) {
+                            // Input zurücksetzen NACH dem Senden
+                            window.RetroConsole.input = "";
+                            window.RetroConsole.cursorPos = 0;
+                            window.RetroConsole.drawTerminal(); // Redraw to clear the input line
+                        }
+                        break; // Exit the switch case
+                    }
+
                     // Normal Terminal Mode: Send via standard WebSocket
                     const inputMessage = {
                         type: 1, 
@@ -690,13 +705,13 @@ function sendMessageWithSessionID(messageObj) {
         const jsonMessage = JSON.stringify(messageObj);
         
         // FRONTEND DEBUG: Log all outgoing messages
-        console.log('[FRONTEND-DEBUG] Sending WebSocket message:', {
-            timestamp: new Date().toISOString(),
-            messageType: messageObj.type,
-            contentPreview: messageObj.content ? String(messageObj.content).substring(0, 50) : 'null',
-            sessionId: messageObj.sessionId,
-            telnetMode: window.RetroConsole ? window.RetroConsole.telnetMode : false
-        });
+        // console.log('[FRONTEND-DEBUG] Sending WebSocket message:', {
+        //     timestamp: new Date().toISOString(),
+        //     messageType: messageObj.type,
+        //     contentPreview: messageObj.content ? String(messageObj.content).substring(0, 50) : 'null',
+        //     sessionId: messageObj.sessionId,
+        //     telnetMode: window.RetroConsole ? window.RetroConsole.telnetMode : false
+        // });
         
           // Prevent rapid duplicate messages in telnet mode (relaxed timing)
         if (window.RetroConsole && window.RetroConsole.telnetMode && messageObj.type === 1) {
@@ -710,7 +725,7 @@ function sendMessageWithSessionID(messageObj) {
             // Prevent identical messages within 10ms (very short window)
             if (window.lastTelnetMessage.hash === messageHash && 
                 now - window.lastTelnetMessage.time < 10) {
-                console.log('[TELNET-DUPE] Prevented duplicate message:', messageObj.content);
+                // console.log('[TELNET-DUPE] Prevented duplicate message:', messageObj.content);
                 return false;
             }
             

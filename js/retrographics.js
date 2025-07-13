@@ -715,10 +715,12 @@ function animateCRT() {
             // Copy persistent2D graphics to main graphics canvas if needed
             if (persistent2DCanvas && persistent2DContext) {
                 persistentGraphicsContext.drawImage(persistent2DCanvas, 0, 0);
+                // Keep graphics2D dirty if persistent2D canvas has content
+                window.RetroGraphics._graphics2DDirty = true;
             }
             
-            // Reset 2D graphics dirty flag
-            if (graphics2DNeedUpdate) {
+            // Reset 2D graphics dirty flag only if no persistent content
+            if (graphics2DNeedUpdate && !(persistent2DCanvas && persistent2DContext)) {
                 window.RetroGraphics._graphics2DDirty = false;
             }
               // Update the graphics texture

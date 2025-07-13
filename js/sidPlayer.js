@@ -138,7 +138,7 @@
         gainNode.gain.setValueAtTime(0.5, audioContext.currentTime);
         gainNode.connect(audioContext.destination);        // Load SID library
         loadJSSID().then(() => {
-            console.log('[SID-PLAYER] SID Player initialized successfully');
+            // console.log('[SID-PLAYER] SID Player initialized successfully');
         }).catch(error => {
             console.error('[SID-PLAYER] Failed to initialize SID Player:', error);
         });

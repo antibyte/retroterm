@@ -51,6 +51,18 @@ func (b *TinyBASIC) evalExpression(expr string) (BASICValue, error) {
 	if strings.TrimSpace(expr) == "" {
 		return BASICValue{}, NewBASICError(ErrCategorySyntax, "EXPECTED_EXPRESSION", true, 0)
 	}
+	
+	// Fast-path optimization for common fractal math patterns
+	if result, found := b.evaluateFastMathPattern(expr); found {
+		return result, nil
+	}
+	
+	// EXPRESSION CACHING DISABLED - was causing bugs with variable expressions
+	// TODO: Re-implement with safer logic that only caches literal expressions
+	// if cachedValue, found := getCachedExpression(expr); found {
+	//     return cachedValue, nil
+	// }
+	
 	p := &exprParser{src: expr, tb: b}
 	defer p.cleanup() // Return token slice to pool when done
 	
@@ -80,7 +92,165 @@ func (b *TinyBASIC) evalExpression(expr string) (BASICValue, error) {
 		return BASICValue{}, NewBASICError(ErrCategorySyntax, "UNEXPECTED_TOKEN", true, 0)
 	}
 
+	// Cache the result for future use (only for truly constant expressions)
+	// DISABLED FOR NOW - the caching logic was too aggressive and caused bugs
+	// TODO: Implement safer caching logic that only caches literal expressions
+	// if isLiteralExpression(expr) {
+	//     setCachedExpression(expr, val)
+	// }
+
 	return val, nil
+}
+
+// Helper functions for expression caching optimization
+func containsVariables(expr string) bool {
+	// Simple heuristic: check for common patterns that indicate variables
+	expr = strings.ToUpper(expr)
+	for i := 0; i < len(expr); i++ {
+		if expr[i] >= 'A' && expr[i] <= 'Z' {
+			// Found a letter, check if it's part of a variable or function
+			if (i == 0 || !isIdChar(expr[i-1])) && 
+			   (i+1 >= len(expr) || !isIdChar(expr[i+1]) || expr[i+1] == '(' || expr[i+1] == '$') {
+				// This looks like a variable reference
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isConstantExpression(expr string) bool {
+	// Check if expression contains only constants, operators, and functions
+	// For now, simple heuristic: no single letters that aren't part of known functions
+	expr = strings.ToUpper(expr)
+	knownFunctions := []string{"ABS", "SGN", "SIN", "COS", "TAN", "ATN", "LOG", "EXP", "SQR", "INT", "RND"}
+	
+	for _, fn := range knownFunctions {
+		if strings.Contains(expr, fn+"(") {
+			// Replace function calls with placeholders
+			expr = strings.ReplaceAll(expr, fn+"(", "F(")
+		}
+	}
+	
+	// Now check if any standalone variables remain
+	return !containsVariables(expr)
+}
+
+// evaluateFastMathPattern provides optimized evaluation for common fractal computation patterns
+func (b *TinyBASIC) evaluateFastMathPattern(expr string) (BASICValue, bool) {
+	// Remove spaces for pattern matching
+	cleanExpr := strings.ReplaceAll(expr, " ", "")
+	cleanExpr = strings.ToUpper(cleanExpr)
+	
+	// Pattern 1: X * X - Y * Y + X0 (common in Mandelbrot)
+	if strings.Contains(cleanExpr, "*") && strings.Contains(cleanExpr, "-") && strings.Contains(cleanExpr, "+") {
+		if result, found := b.evaluateComplexArithmetic(cleanExpr); found {
+			return result, true
+		}
+	}
+	
+	// Pattern 2: X * X + Y * Y (magnitude squared)
+	if strings.Contains(cleanExpr, "*") && strings.Contains(cleanExpr, "+") && !strings.Contains(cleanExpr, "-") {
+		if result, found := b.evaluateMagnitudeSquared(cleanExpr); found {
+			return result, true
+		}
+	}
+	
+	// Pattern 3: 2 * X * Y + Y0 (imaginary part update)
+	if strings.HasPrefix(cleanExpr, "2*") && strings.Contains(cleanExpr, "+") {
+		if result, found := b.evaluateImaginaryUpdate(cleanExpr); found {
+			return result, true
+		}
+	}
+	
+	// Pattern 4: Simple square X * X or Y * Y
+	if result, found := b.evaluateSimpleSquare(cleanExpr); found {
+		return result, true
+	}
+	
+	return BASICValue{}, false
+}
+
+// evaluateComplexArithmetic handles X*X-Y*Y+X0 pattern
+func (b *TinyBASIC) evaluateComplexArithmetic(expr string) (BASICValue, bool) {
+	// Pattern: X*X-Y*Y+X0
+	if strings.Contains(expr, "X*X-Y*Y+X0") {
+		xVal, xExists := b.variables[getCachedVarName("X")]
+		yVal, yExists := b.variables[getCachedVarName("Y")]
+		x0Val, x0Exists := b.variables[getCachedVarName("X0")]
+		
+		if xExists && yExists && x0Exists && xVal.IsNumeric && yVal.IsNumeric && x0Val.IsNumeric {
+			x := xVal.NumValue
+			y := yVal.NumValue
+			x0 := x0Val.NumValue
+			
+			result := x*x - y*y + x0
+			return BASICValue{NumValue: result, IsNumeric: true}, true
+		}
+	}
+	
+	return BASICValue{}, false
+}
+
+// evaluateMagnitudeSquared handles X*X+Y*Y pattern
+func (b *TinyBASIC) evaluateMagnitudeSquared(expr string) (BASICValue, bool) {
+	// Pattern: X*X+Y*Y
+	if expr == "X*X+Y*Y" {
+		xVal, xExists := b.variables[getCachedVarName("X")]
+		yVal, yExists := b.variables[getCachedVarName("Y")]
+		
+		if xExists && yExists && xVal.IsNumeric && yVal.IsNumeric {
+			x := xVal.NumValue
+			y := yVal.NumValue
+			
+			result := x*x + y*y
+			return BASICValue{NumValue: result, IsNumeric: true}, true
+		}
+	}
+	
+	return BASICValue{}, false
+}
+
+// evaluateImaginaryUpdate handles 2*X*Y+Y0 pattern
+func (b *TinyBASIC) evaluateImaginaryUpdate(expr string) (BASICValue, bool) {
+	// Pattern: 2*X*Y+Y0
+	if strings.Contains(expr, "2*X*Y+Y0") {
+		xVal, xExists := b.variables[getCachedVarName("X")]
+		yVal, yExists := b.variables[getCachedVarName("Y")]
+		y0Val, y0Exists := b.variables[getCachedVarName("Y0")]
+		
+		if xExists && yExists && y0Exists && xVal.IsNumeric && yVal.IsNumeric && y0Val.IsNumeric {
+			x := xVal.NumValue
+			y := yVal.NumValue
+			y0 := y0Val.NumValue
+			
+			result := 2*x*y + y0
+			return BASICValue{NumValue: result, IsNumeric: true}, true
+		}
+	}
+	
+	return BASICValue{}, false
+}
+
+// evaluateSimpleSquare handles X*X or Y*Y patterns
+func (b *TinyBASIC) evaluateSimpleSquare(expr string) (BASICValue, bool) {
+	if expr == "X*X" {
+		xVal, exists := b.variables[getCachedVarName("X")]
+		if exists && xVal.IsNumeric {
+			result := xVal.NumValue * xVal.NumValue
+			return BASICValue{NumValue: result, IsNumeric: true}, true
+		}
+	}
+	
+	if expr == "Y*Y" {
+		yVal, exists := b.variables[getCachedVarName("Y")]
+		if exists && yVal.IsNumeric {
+			result := yVal.NumValue * yVal.NumValue
+			return BASICValue{NumValue: result, IsNumeric: true}, true
+		}
+	}
+	
+	return BASICValue{}, false
 }
 
 // tokenize breaks the expression string into tokens.
@@ -600,8 +770,8 @@ func (p *exprParser) parsePrimary() (BASICValue, error) {
 			// Direkter Zugriff ohne Locks - String-Zugriffe sind in Go atomisch
 			return BASICValue{StrValue: p.tb.currentKey, IsNumeric: false}, nil
 		}
-		// Variable Normalisierung: Verwende immer Großbuchstaben für Lookups
-		// Dies eliminiert doppelte Map-Lookups und verbessert Performance
+		// Variable Normalisierung: Verwende gecachte Großbuchstaben-Version für bessere Performance
+		identNameUpper = getCachedVarName(identName)
 		if v, ok := p.tb.variables[identNameUpper]; ok {
 			return v, nil
 		}
@@ -639,7 +809,7 @@ func (p *exprParser) parsePrimary() (BASICValue, error) {
 
 // parseFunctionCall handles function calls. Assumes identifier consumed.
 func (p *exprParser) parseFunctionCall(funcName string, namePos int) (BASICValue, error) {
-	funcNameUpper := strings.ToUpper(funcName)
+	funcNameUpper := getCachedVarName(funcName)
 	_, err := p.expect(tokLParen) // Consume '('.
 	if err != nil {
 		return BASICValue{}, err

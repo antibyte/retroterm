@@ -490,7 +490,7 @@ Object.assign(window.RetroConsole, {
             // Chess mode respects LOCATE positioning from backend
             const x = padL + this.cursorX * this.CHAR_WIDTH;
             const y = padT + this.cursorY * this.CHAR_HEIGHT;
-            console.log(`[CHESS-DEBUG] Drawing input at cursorX=${this.cursorX}, cursorY=${this.cursorY}, screenX=${x}, screenY=${y}, input="${displayInput}"`);
+            // console.log(`[CHESS-DEBUG] Drawing input at cursorX=${this.cursorX}, cursorY=${this.cursorY}, screenX=${x}, screenY=${y}, input="${displayInput}"`);
             ctx.fillStyle = CFG.BRIGHTNESS_LEVELS[15];
             ctx.fillText(displayInput, x, y);
         }
@@ -533,7 +533,7 @@ Object.assign(window.RetroConsole, {
                 // Input follows the prompt, so cursor is at cursorX + input position
                 cursorCol = this.cursorX + this.cursorPos;
                 cursorRow = this.cursorY;
-                console.log(`[CHESS-DEBUG] Cursor position: cursorX=${this.cursorX}, cursorPos=${this.cursorPos}, cursorCol=${cursorCol}, cursorRow=${cursorRow}`);
+                // console.log(`[CHESS-DEBUG] Cursor position: cursorX=${this.cursorX}, cursorPos=${this.cursorPos}, cursorCol=${cursorCol}, cursorRow=${cursorRow}`);
             } else {
                 // In normal mode: Calculate cursor position based on input
                 const promptLength = this.runMode ? 0 : this.promptSymbol.length;
@@ -645,9 +645,9 @@ Object.assign(window.RetroConsole, {
     handleBackendMessage: function(event) {
         try {
             let raw = typeof event.data === 'string' ? event.data.trim() : event.data;
-            console.log('[RetroConsole-DEBUG] Received raw backend message:', raw);
+            // console.log('[RetroConsole-DEBUG] Received raw backend message:', raw);
             if (typeof raw === 'string' && raw.length === 0) {
-                console.log('[FRONTEND-DEBUG] Empty string data received, ignoring.');
+                // console.log('[FRONTEND-DEBUG] Empty string data received, ignoring.');
                 return;
             }
             
@@ -656,7 +656,7 @@ Object.assign(window.RetroConsole, {
                 
                 // Debug: Log all chess-related messages
                 if (this.inputMode === 2) {
-                    console.log(`[CHESS-DEBUG] Received message type ${responseObject.type} (${typeName}):`, responseObject);
+                    // console.log(`[CHESS-DEBUG] Received message type ${responseObject.type} (${typeName}):`, responseObject);
                 }
 
                 if (typeName === 'EDITOR') {
@@ -1092,45 +1092,45 @@ Object.assign(window.RetroConsole, {
                             if (window.RetroGraphics && typeof window.RetroGraphics.handlePlot === 'function') {
                                 window.RetroGraphics.handlePlot(graphicsCommand);
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-GRAPHICS] RetroGraphics.handlePlot not available');
+                                // console.log('[RetroConsole-GRAPHICS] RetroGraphics.handlePlot not available');
                             }
                             break;
                         case 'LINE':
                             if (window.RetroGraphics && typeof window.RetroGraphics.handleLine === 'function') {
                                 window.RetroGraphics.handleLine(graphicsCommand);
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleLine not available');
+                                // console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleLine not available');
                             }
                             break;
                         case 'RECT':
                             if (window.RetroGraphics && typeof window.RetroGraphics.handleRect === 'function') {
                                 window.RetroGraphics.handleRect(graphicsCommand);
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleRect not available');
+                                // console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleRect not available');
                             }
                             break;
                         case 'CIRCLE':
                             // Special debug logging for CIRCLE commands
                             if (this.debugMode) {
-                                console.log('[RetroConsole-CIRCLE] *** CIRCLE command received! ***');
-                                console.log('[RetroConsole-CIRCLE] Graphics command object:', graphicsCommand);
-                                console.log('[RetroConsole-CIRCLE] Raw response:', response);
+                                // console.log('[RetroConsole-CIRCLE] *** CIRCLE command received! ***');
+                                // console.log('[RetroConsole-CIRCLE] Graphics command object:', graphicsCommand);
+                                // console.log('[RetroConsole-CIRCLE] Raw response:', response);
                             }
                             if (window.RetroGraphics && typeof window.RetroGraphics.handleCircle === 'function') {
                                 if (this.debugMode) {
-                                    console.log('[RetroConsole-CIRCLE] Calling RetroGraphics.handleCircle');
+                                    // console.log('[RetroConsole-CIRCLE] Calling RetroGraphics.handleCircle');
                                 }
                                 window.RetroGraphics.handleCircle(graphicsCommand);
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-CIRCLE] RetroGraphics.handleCircle not available');
-                                console.log('[RetroConsole-CIRCLE] window.RetroGraphics:', window.RetroGraphics);
+                                // console.log('[RetroConsole-CIRCLE] RetroGraphics.handleCircle not available');
+                                // console.log('[RetroConsole-CIRCLE] window.RetroGraphics:', window.RetroGraphics);
                             }
                             break;
                         case 'FILL':
                              if (window.RetroGraphics && typeof window.RetroGraphics.handleFill === 'function') {
                                 window.RetroGraphics.handleFill(graphicsCommand);
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleFill not available');
+                                // console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleFill not available');
                             }
                             break;
                         case 'CLEAR_SCREEN': 
@@ -1140,35 +1140,36 @@ Object.assign(window.RetroConsole, {
                             if (window.RetroGraphics && typeof window.RetroGraphics.handleClearScreen === 'function') {
                                 window.RetroGraphics.handleClearScreen();
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleClearScreen not available');
+                                // console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleClearScreen not available');
                             }
                             break;
                         case 'UPDATE_VECTOR':
                             if (window.RetroGraphics && typeof window.RetroGraphics.handleUpdateVector === 'function') {
                                 window.RetroGraphics.handleUpdateVector(graphicsCommand);
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleUpdateVector not available');
+                                // console.log('[RetroConsole-GRAPHICS] RetroGraphics.handleUpdateVector not available');
                             }
                             break;
                         case 'CLEAR_ALL_VECTORS':
                             if (window.RetroGraphics && typeof window.RetroGraphics.clearAllVectors === 'function') {
                                 window.RetroGraphics.clearAllVectors();
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-GRAPHICS] RetroGraphics.clearAllVectors not available');
+                                // console.log('[RetroConsole-GRAPHICS] RetroGraphics.clearAllVectors not available');
                             }
                             break;                        
                         default:
                             if (this.debugMode) {
-                                console.log('[RetroConsole-GRAPHICS] Unknown graphics command:', response.command);
+                                // console.log('[RetroConsole-GRAPHICS] Unknown graphics command:', response.command);
                             }
                     }
                 } else if (this.debugMode) {
-                    console.log('[RetroConsole-GRAPHICS] No command in graphics message');                }
+                    // console.log('[RetroConsole-GRAPHICS] No command in graphics message');
+                }
                 break;
             case 'VECTOR':
                 // Debug logging for VECTOR messages
                 if (this.debugMode) {
-                    console.log('[RetroConsole-VECTOR] Received VECTOR message:', response);
+                    // console.log('[RetroConsole-VECTOR] Received VECTOR message:', response);
                 }
                 if (response.command) {
                     switch (response.command) {
@@ -1176,27 +1177,29 @@ Object.assign(window.RetroConsole, {
                             if (window.RetroGraphics && typeof window.RetroGraphics.handleUpdateVector === 'function') {
                                 window.RetroGraphics.handleUpdateVector(response);
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-VECTOR] RetroGraphics.handleUpdateVector not available');
+                                // console.log('[RetroConsole-VECTOR] RetroGraphics.handleUpdateVector not available');
                             }
                             break;
                         case 'CLEAR_ALL_VECTORS':
                             if (window.RetroGraphics && typeof window.RetroGraphics.clearAllVectors === 'function') {
                                 window.RetroGraphics.clearAllVectors();
                             } else if (this.debugMode) {
-                                console.log('[RetroConsole-VECTOR] RetroGraphics.clearAllVectors not available');
+                                // console.log('[RetroConsole-VECTOR] RetroGraphics.clearAllVectors not available');
                             }
                             break;
                         default:
                             if (this.debugMode) {
-                                console.log('[RetroConsole-VECTOR] Unknown vector command:', response.command);
+                                // console.log('[RetroConsole-VECTOR] Unknown vector command:', response.command);
                             }
                     }
                 } else if (this.debugMode) {
-                    console.log('[RetroConsole-VECTOR] No command in vector message');                }
+                    // console.log('[RetroConsole-VECTOR] No command in vector message');
+                }
                 break;
             case 'CHAT':
                 this.initiateChatMode();
-                break;            case 'LOCATE':
+                break;
+            case 'LOCATE':
                 // LOCATE x,y - Set cursor position
                 if (response.content) {
                     const coords = response.content.split(',');
@@ -1205,7 +1208,7 @@ Object.assign(window.RetroConsole, {
                         // Backend already sends 0-based coordinates
                         const newX = Math.max(0, parseInt(coords[0]) || 0);
                         const newY = Math.max(0, parseInt(coords[1]) || 0);
-                        console.log(`[CHESS-DEBUG] LOCATE received: ${response.content} -> setting cursorX=${newX}, cursorY=${newY} (inputMode=${this.inputMode})`);
+                        // console.log(`[CHESS-DEBUG] LOCATE received: ${response.content} -> setting cursorX=${newX}, cursorY=${newY} (inputMode=${this.inputMode})`);
                         this.cursorX = newX;
                         this.cursorY = newY;
                         if (this.cursorY >= CFG.TEXT_ROWS) this.cursorY = CFG.TEXT_ROWS - 1;
@@ -1301,29 +1304,29 @@ Object.assign(window.RetroConsole, {
                 }
                 // Check message.content as fallback
                 else if (message.content) {
-                    console.log('[EDITOR-CONSOLE] "start": Processing message.content, length:', message.content.length);
+                    // console.log('[EDITOR-CONSOLE] "start": Processing message.content, length:', message.content.length);
                     
                     // Check for different formats of line breaks from backend
                     if (message.content.includes('\\r\\n')) {
                         contentLines = message.content.split('\\r\\n');
-                        console.log('[EDITOR-CONSOLE] "start": Split content on \\r\\n, got', contentLines.length, 'lines');
+                        // console.log('[EDITOR-CONSOLE] "start": Split content on \\r\\n, got', contentLines.length, 'lines');
                     } else if (message.content.includes('\\\\r\\\\n')) {
                         contentLines = message.content.split('\\\\r\\\\n');
-                        console.log('[EDITOR-CONSOLE] "start": Split content on \\\\r\\\\n, got', contentLines.length, 'lines');
+                        // console.log('[EDITOR-CONSOLE] "start": Split content on \\\\r\\\\n, got', contentLines.length, 'lines');
                     } else if (message.content.includes('\n')) {
                         contentLines = message.content.split('\n');
-                        console.log('[EDITOR-CONSOLE] "start": Split content on \\n, got', contentLines.length, 'lines');
+                        // console.log('[EDITOR-CONSOLE] "start": Split content on \\n, got', contentLines.length, 'lines');
                     } else {
                         // Default: whole content as one line
                         contentLines = [message.content]; 
-                        console.log('[EDITOR-CONSOLE] "start": No line breaks found, using single line');
+                        // console.log('[EDITOR-CONSOLE] "start": No line breaks found, using single line');
                     }
                 }
                 
                 // Check message.params.lines as another fallback (from render response)
                 else if (message.params && Array.isArray(message.params.lines)) {
                     contentLines = [...message.params.lines];
-                    console.log('[EDITOR-CONSOLE] "start": Using message.params.lines directly, got', contentLines.length, 'lines');
+                    // console.log('[EDITOR-CONSOLE] "start": Using message.params.lines directly, got', contentLines.length, 'lines');
                 }
                 
                 this.editorData = {
@@ -1355,10 +1358,10 @@ Object.assign(window.RetroConsole, {
                 }
                 break;
             case "render":
-                console.log('[EDITOR-CONSOLE] "render": Received render command', message);
+                // console.log('[EDITOR-CONSOLE] "render": Received render command', message);
                 
                 if (!this.editorData) { 
-                    console.log('[EDITOR-CONSOLE] "render": Creating new editorData');
+                    // console.log('[EDITOR-CONSOLE] "render": Creating new editorData');
                     this.editorData = { 
                         lines: [], 
                         filename: message.params?.filename || "",
@@ -1374,7 +1377,7 @@ Object.assign(window.RetroConsole, {
                     };
                 }                // Process render message parameters
                 if (message.params) {
-                    console.log('[EDITOR-CONSOLE] "render": Processing render parameters');
+                    // console.log('[EDITOR-CONSOLE] "render": Processing render parameters');
                     
                     // Koordinatensystem für den Editor einheitlich verwalten
                     // Logik: Das Backend sendet sowohl die originalen Cursor-Koordinaten (cursorCol/cursorLine)
@@ -1383,70 +1386,70 @@ Object.assign(window.RetroConsole, {
                     if (typeof message.params.cursorX === 'number') {
                         this.editorData.cursorX = message.params.cursorX;
                         this.editorData.cursorCol = message.params.cursorX; // Keep both for compatibility
-                        console.log('[EDITOR-CONSOLE] "render": Stored cursorX/cursorCol =', this.editorData.cursorX);
+                        // console.log('[EDITOR-CONSOLE] "render": Stored cursorX/cursorCol =', this.editorData.cursorX);
                     }
                     
                     if (typeof message.params.cursorY === 'number') {
                         this.editorData.cursorY = message.params.cursorY;
                         this.editorData.cursorLine = message.params.cursorY; // Keep both for compatibility
-                        console.log('[EDITOR-CONSOLE] "render": Stored cursorY/cursorLine =', this.editorData.cursorY);
+                        // console.log('[EDITOR-CONSOLE] "render": Stored cursorY/cursorLine =', this.editorData.cursorY);
                     }
                     
                     // Store visible cursor positions for debugging/fallback
                     if (typeof message.params.visibleCursorCol === 'number') {
                         this.editorData.visibleCursorCol = message.params.visibleCursorCol;
-                        console.log('[EDITOR-CONSOLE] "render": Stored visibleCursorCol =', this.editorData.visibleCursorCol);
+                        // console.log('[EDITOR-CONSOLE] "render": Stored visibleCursorCol =', this.editorData.visibleCursorCol);
                     }
                     
                     if (typeof message.params.visibleCursorLine === 'number') {
                         this.editorData.visibleCursorLine = message.params.visibleCursorLine;
-                        console.log('[EDITOR-CONSOLE] "render": Stored visibleCursorLine =', this.editorData.visibleCursorLine);
+                        // console.log('[EDITOR-CONSOLE] "render": Stored visibleCursorLine =', this.editorData.visibleCursorLine);
                     }
                     
                     if (typeof message.params.mappingSuccess === 'boolean') {
                         this.editorData.mappingSuccess = message.params.mappingSuccess;
-                        console.log('[EDITOR-CONSOLE] "render": Stored mappingSuccess =', this.editorData.mappingSuccess);
+                        // console.log('[EDITOR-CONSOLE] "render": Stored mappingSuccess =', this.editorData.mappingSuccess);
                     }                    
                     // Debug output for cursor mapping validation
                     if (typeof message.params.mappingSuccess === 'boolean' && 
                         message.params.mappingSuccess === false) {
                         console.warn('[EDITOR-CONSOLE] WARNING: Backend reported cursor mapping failure!');
-                        console.log('[EDITOR-DEBUG] Full message params:', JSON.stringify(message.params));
+                        // console.log('[EDITOR-DEBUG] Full message params:', JSON.stringify(message.params));
                     }
                     
                     // Handle dimensions
                     if (typeof message.params.textCols === 'number') {
                         this.editorData.cols = message.params.textCols;
-                        console.log('[EDITOR-CONSOLE] "render": Set cols =', this.editorData.cols);
+                        // console.log('[EDITOR-CONSOLE] "render": Set cols =', this.editorData.cols);
                     }
                     if (typeof message.params.textRows === 'number') {
                         this.editorData.rows = message.params.textRows;
-                        console.log('[EDITOR-CONSOLE] "render": Set rows =', this.editorData.rows);
+                        // console.log('[EDITOR-CONSOLE] "render": Set rows =', this.editorData.rows);
                     }
                     
                     // Handle scroll position
                     if (typeof message.params.scrollY === 'number') {
                         this.editorData.scrollY = message.params.scrollY;
-                        console.log('[EDITOR-CONSOLE] "render": Set scrollY =', this.editorData.scrollY);
+                        // console.log('[EDITOR-CONSOLE] "render": Set scrollY =', this.editorData.scrollY);
                     }
                     
                     // Handle cursor visibility
                     if (typeof message.params.hideCursor === 'boolean') {
                         this.editorData.hideCursor = message.params.hideCursor;
-                        console.log('[EDITOR-CONSOLE] "render": Set hideCursor =', this.editorData.hideCursor);
+                        // console.log('[EDITOR-CONSOLE] "render": Set hideCursor =', this.editorData.hideCursor);
                     }
                     
                     // Handle status text
                     if (message.params.status) {
                         this.editorData.statusText = message.params.status;
-                        console.log('[EDITOR-CONSOLE] "render": Set statusText =', this.editorData.statusText);
+                        // console.log('[EDITOR-CONSOLE] "render": Set statusText =', this.editorData.statusText);
                     }
                     
                     // Handle content lines
                     if (message.params.lines && Array.isArray(message.params.lines)) {
                         this.editorData.lines = message.params.lines;
                         this.lines = [...this.editorData.lines];
-                        console.log('[EDITOR-CONSOLE] "render": Set lines from params.lines, length =', this.editorData.lines.length);
+                        // console.log('[EDITOR-CONSOLE] "render": Set lines from params.lines, length =', this.editorData.lines.length);
                     }
                 }
                 
@@ -1454,7 +1457,7 @@ Object.assign(window.RetroConsole, {
                 this.cursorX = this.editorData.cursorX;
                 this.cursorY = this.editorData.cursorY;
                 
-                console.log('[EDITOR-CONSOLE] "render": Calling drawEditor');
+                // console.log('[EDITOR-CONSOLE] "render": Calling drawEditor');
                 this.drawEditor();
                 break;
             case "status":
@@ -1514,7 +1517,7 @@ Object.assign(window.RetroConsole, {
             } else {
                 cursorDebug = `Original Cursor: Line ${this.editorData.cursorLine}, Col ${this.editorData.cursorCol}`;
             }
-            console.log(`[EDITOR-DEBUG] ${cursorDebug}, Scroll: ${this.editorData.scrollY}, Total wrapped: ${this.editorData.totalLines}`);
+            // console.log(`[EDITOR-DEBUG] ${cursorDebug}, Scroll: ${this.editorData.scrollY}, Total wrapped: ${this.editorData.totalLines}`);
         }
 
         ctx.imageSmoothingEnabled = false;
@@ -1578,17 +1581,17 @@ Object.assign(window.RetroConsole, {
         if (typeof this.editorData.cursorX === 'number' && typeof this.editorData.cursorY === 'number') {
             cursorScreenX = this.editorData.cursorX;
             cursorScreenY = this.editorData.cursorY;
-            console.log('[EDITOR-CURSOR] Using cursor position from cursorX/cursorY:', cursorScreenY, cursorScreenX);
+            // console.log('[EDITOR-CURSOR] Using cursor position from cursorX/cursorY:', cursorScreenY, cursorScreenX);
         } else if (typeof this.editorData.cursorCol === 'number' && typeof this.editorData.cursorLine === 'number') {
             // Fallback to cursorCol/cursorLine if cursorX/cursorY not available
             cursorScreenX = this.editorData.cursorCol;
             cursorScreenY = this.editorData.cursorLine;
-            console.log('[EDITOR-CURSOR] Using fallback cursor position from cursorCol/cursorLine:', cursorScreenY, cursorScreenX);
+            // console.log('[EDITOR-CURSOR] Using fallback cursor position from cursorCol/cursorLine:', cursorScreenY, cursorScreenX);
         } else if (typeof this.editorData.visibleCursorCol === 'number' && typeof this.editorData.visibleCursorLine === 'number') {
             // Final fallback to visible cursor positions
             cursorScreenX = this.editorData.visibleCursorCol;
             cursorScreenY = this.editorData.visibleCursorLine;
-            console.log('[EDITOR-CURSOR] Using final fallback cursor position from visibleCursor:', cursorScreenY, cursorScreenX);
+            // console.log('[EDITOR-CURSOR] Using final fallback cursor position from visibleCursor:', cursorScreenY, cursorScreenX);
         }
         
         // Draw cursor if position is valid and cursor is not hidden
@@ -1612,7 +1615,7 @@ Object.assign(window.RetroConsole, {
                 }
             }
             
-            console.log('[EDITOR-CURSOR] Drew cursor at screen position:', cursorScreenY, cursorScreenX);
+            // console.log('[EDITOR-CURSOR] Drew cursor at screen position:', cursorScreenY, cursorScreenX);
         }
 
         // Status line - draw exactly like Telnet status line
@@ -1637,7 +1640,7 @@ Object.assign(window.RetroConsole, {
               // Textfarbe für nachfolgende Zeichen zurücksetzen
             ctx.fillStyle = CFG.BRIGHTNESS_LEVELS[15];
             
-            console.log('[EDITOR-STATUS] Drew status line (Telnet-style):', this.editorData.statusText);
+            // console.log('[EDITOR-STATUS] Drew status line (Telnet-style):', this.editorData.statusText);
         }
     },
 
@@ -1647,7 +1650,7 @@ Object.assign(window.RetroConsole, {
             // Enter telnet mode
             this.telnetMode = true;
             this.telnetServerEcho = false; // Initialize as false until server negotiates
-            console.log('[TELNET-MODE] Telnet mode activated, server:', response.params?.serverName);
+            // console.log('[TELNET-MODE] Telnet mode activated, server:', response.params?.serverName);
             this.telnetServerName = response.params?.serverName || 'Unknown Server';
             this.inputEnabled = true;
             this.runMode = false;            // Clear screen and show telnet header
@@ -1665,7 +1668,7 @@ Object.assign(window.RetroConsole, {
                 window.lastTelnetMessage = { hash: '', time: 0 };
             }        } else if (response.content === 'end') {
             // Exit telnet mode
-            console.log('[TELNET-MODE] Telnet mode deactivated');
+            // console.log('[TELNET-MODE] Telnet mode deactivated');
             this.telnetMode = false;
             this.telnetServerEcho = false; // Reset echo flag
             this.telnetEchoBuffer = []; // Clear echo buffer
@@ -1680,7 +1683,7 @@ Object.assign(window.RetroConsole, {
             if (response.params) {
                 this.telnetServerEcho = response.params.serverEcho || false;
                 const localEcho = response.params.localEcho || false;
-                console.log(`[TELNET-ECHO] Echo state changed: serverEcho=${this.telnetServerEcho}, localEcho=${localEcho}`);
+                // console.log(`[TELNET-ECHO] Echo state changed: serverEcho=${this.telnetServerEcho}, localEcho=${localEcho}`);
                 
                 // Clear echo buffer when echo state changes to prevent mismatched echoes
                 this.telnetEchoBuffer = [];
@@ -1826,15 +1829,15 @@ Object.assign(window.RetroConsole, {
             // ECHO - Option 1 (Critical for preventing double characters)
             else if (option === 1) {
                 if (command === 251) { // WILL ECHO - Server will handle echoing
-                    console.log('[TELNET-ECHO] Server WILL ECHO - disabling local echo');
+                    // console.log('[TELNET-ECHO] Server WILL ECHO - disabling local echo');
                     this.sendTelnetResponse([255, 253, 1]); // DO ECHO - We agree
                     this.telnetServerEcho = true; // Server handles echo
                 } else if (command === 252) { // WONT ECHO - Server won't handle echoing
-                    console.log('[TELNET-ECHO] Server WONT ECHO - enabling local echo');
+                    // console.log('[TELNET-ECHO] Server WONT ECHO - enabling local echo');
                     this.sendTelnetResponse([255, 254, 1]); // DONT ECHO - We disagree
                     this.telnetServerEcho = false; // We handle echo locally
                 } else if (command === 253) { // DO ECHO - Server asks if we will echo
-                    console.log('[TELNET-ECHO] Server asks DO ECHO - we refuse');
+                    // console.log('[TELNET-ECHO] Server asks DO ECHO - we refuse');
                     this.sendTelnetResponse([255, 252, 1]); // WONT ECHO - We refuse
                 }
             }
@@ -2091,7 +2094,7 @@ Object.assign(window.RetroConsole, {
             } else {
                 // Block all other keys (text input, backspace, delete, etc.)
                 event.preventDefault();
-                console.log("[EDITOR-INPUT] Text input blocked in read-only mode:", event.key);
+                // console.log("[EDITOR-INPUT] Text input blocked in read-only mode:", event.key);
                 return;
             }        }
         
@@ -2149,18 +2152,18 @@ Object.assign(window.RetroConsole, {
             command = null;
         }// Send command to backend if valid
         if (command && typeof window.sendEditorCommand === "function") {
-            console.log("[EDITOR-INPUT] Sending command to backend:", command, data);
+            // console.log("[EDITOR-INPUT] Sending command to backend:", command, data);
             window.sendEditorCommand(command, data);
         } else if (command) {
             console.error("[EDITOR-INPUT] sendEditorCommand function not available");
         } else {
-            console.log("[EDITOR-INPUT] No command mapped for key:", event.key);
+            // console.log("[EDITOR-INPUT] No command mapped for key:", event.key);
         }
     },
 
     // Additional methods for filename input handling
     startFilenameInput: function(response) {
-        console.log('[EDITOR-DEBUG] Starting filename input mode');
+        // console.log('[EDITOR-DEBUG] Starting filename input mode');
         
         // Small delay to prevent the original Ctrl+S event from being processed again
         setTimeout(() => {
@@ -2182,11 +2185,11 @@ Object.assign(window.RetroConsole, {
                 this.drawTerminal();
             }
             
-            console.log('[EDITOR-DEBUG] Filename input mode started with prompt:', prompt);
+            // console.log('[EDITOR-DEBUG] Filename input mode started with prompt:', prompt);
         }, 50); // 50ms delay
     },    
     stopFilenameInput: function() {
-        console.log('[EDITOR-DEBUG] Stopping filename input mode');
+        // console.log('[EDITOR-DEBUG] Stopping filename input mode');
         
         // Exit filename input mode
         this.filenameInputMode = false;
@@ -2396,16 +2399,16 @@ Object.assign(window.RetroConsole, {
 
     // Handle bitmap messages for chess board and pieces
     handleBitmapMessage: function(response) {
-        console.log('[RetroConsole-BITMAP] Processing bitmap message:', response);
-        console.log('[RetroConsole-BITMAP] BitmapData length:', response.bitmapData ? response.bitmapData.length : 'undefined');
-        console.log('[RetroConsole-BITMAP] Position:', response.bitmapX, response.bitmapY);
-        console.log('[RetroConsole-BITMAP] Scale:', response.bitmapScale);
-        console.log('[RetroConsole-BITMAP] ID:', response.bitmapID);
+        // console.log('[RetroConsole-BITMAP] Processing bitmap message:', response);
+        // console.log('[RetroConsole-BITMAP] BitmapData length:', response.bitmapData ? response.bitmapData.length : 'undefined');
+        // console.log('[RetroConsole-BITMAP] Position:', response.bitmapX, response.bitmapY);
+        // console.log('[RetroConsole-BITMAP] Scale:', response.bitmapScale);
+        // console.log('[RetroConsole-BITMAP] ID:', response.bitmapID);
 
         // Create bitmap element
         const img = new Image();
         img.onload = () => {
-            console.log('[RetroConsole-BITMAP] Image loaded successfully, dimensions:', img.width, 'x', img.height);
+            // console.log('[RetroConsole-BITMAP] Image loaded successfully, dimensions:', img.width, 'x', img.height);
             
             // Create canvas for quantization to 16 brightness levels
             const canvas = document.createElement('canvas');
@@ -2414,7 +2417,7 @@ Object.assign(window.RetroConsole, {
             canvas.width = img.width;
             canvas.height = img.height;
             ctx.drawImage(img, 0, 0);
-            console.log('[RetroConsole-BITMAP] Canvas created, size:', canvas.width, 'x', canvas.height);
+            // console.log('[RetroConsole-BITMAP] Canvas created, size:', canvas.width, 'x', canvas.height);
               // Quantize to 16 brightness levels for retro effect and map to green tones
             const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const data = imageData.data;
@@ -2445,7 +2448,7 @@ Object.assign(window.RetroConsole, {
             }
             
             ctx.putImageData(imageData, 0, 0);
-            console.log('[RetroConsole-BITMAP] Applied retro quantization effect with green mapping');
+            // console.log('[RetroConsole-BITMAP] Applied retro quantization effect with green mapping');
             
             // Apply scaling if specified
             const scale = response.bitmapScale || 1.0;
@@ -2484,7 +2487,7 @@ Object.assign(window.RetroConsole, {
             const x = response.bitmapX || 0;
             const y = response.bitmapY || 0;
             
-            console.log('[RetroConsole-BITMAP] Drawing bitmap at position:', x, y);
+            // console.log('[RetroConsole-BITMAP] Drawing bitmap at position:', x, y);
             // Debug output removed for production
             // Check if WebGL graphics system is available
             // Use persistent2D canvas for chess bitmaps as they should persist between frames
@@ -2512,7 +2515,7 @@ Object.assign(window.RetroConsole, {
         
         // Load bitmap from base64 data
         if (response.bitmapData) {
-            console.log('[RetroConsole-BITMAP] Setting image src with base64 data');
+            // console.log('[RetroConsole-BITMAP] Setting image src with base64 data');
             img.src = 'data:image/png;base64,' + response.bitmapData;
         } else {
             console.error('[RetroConsole-BITMAP] No bitmapData provided in response');
@@ -2520,7 +2523,7 @@ Object.assign(window.RetroConsole, {
     },
     
     refreshTokenForSession: async function(sessionId) {
-        console.log('[RetroConsole-TOKEN] Refreshing token for session:', sessionId);
+        // console.log('[RetroConsole-TOKEN] Refreshing token for session:', sessionId);
         
         // Check if global auth manager is available
         if (window.authManager || window.globalAuthManager) {
@@ -2528,7 +2531,7 @@ Object.assign(window.RetroConsole, {
             
             try {
                 // Request new token from backend using the session ID
-                console.log('[RetroConsole-TOKEN] Requesting token for session:', sessionId);
+                // console.log('[RetroConsole-TOKEN] Requesting token for session:', sessionId);
                 
                 const loginResponse = await fetch(`${window.location.origin}/api/auth/login`, {
                     method: 'POST',
@@ -2548,8 +2551,8 @@ Object.assign(window.RetroConsole, {
                     authManager.setStoredToken(loginData.token);
                     authManager.setStoredSessionId(loginData.sessionId);
                     
-                    console.log('[RetroConsole-TOKEN] Token successfully refreshed');
-                    console.log('[RetroConsole-TOKEN] New token:', loginData.token.substring(0, 20) + '...');
+                    // console.log('[RetroConsole-TOKEN] Token successfully refreshed');
+                    // console.log('[RetroConsole-TOKEN] New token:', loginData.token.substring(0, 20) + '...');
                     
                 } else {
                     console.error('[RetroConsole-TOKEN] Failed to refresh token:', loginData.message);

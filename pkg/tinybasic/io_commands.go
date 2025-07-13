@@ -70,8 +70,11 @@ func (b *TinyBASIC) cmdPrint(args string) error {
 		args = strings.TrimSpace(args)
 	}
 
-	// Parse alle Items getrennt durch Semicolons oder Kommas
+	// Parse alle Items getrennt durch Semicolons oder Kommas (optimized with string builder pooling)
 	var items []PrintItem
+	sb := getStringBuilder() // Use pooled string builder
+	defer returnStringBuilder(sb)
+	
 	pos := 0
 	for pos < len(args) {
 		// Überspringe Leerzeichen
@@ -139,10 +142,10 @@ func (b *TinyBASIC) cmdPrint(args string) error {
 
 		items = append(items, PrintItem{Value: item, Separator: separator})
 	}
-	// Baue die Ausgabe basierend auf den Trennzeichen auf
-	var output strings.Builder
+	// Baue die Ausgabe basierend auf den Trennzeichen auf (reuse the pooled string builder)
+	sb.Reset() // Clear any previous content
 	for _, item := range items {
-		output.WriteString(item.Value)
+		sb.WriteString(item.Value)
 
 		// Füge entsprechende Abstände hinzu
 		if item.Separator == ',' {
@@ -153,13 +156,13 @@ func (b *TinyBASIC) cmdPrint(args string) error {
 			if spacesToAdd == 0 {
 				spacesToAdd = tabSize
 			}
-			output.WriteString(strings.Repeat(" ", spacesToAdd))
+			sb.WriteString(strings.Repeat(" ", spacesToAdd))
 		} else if item.Separator == ';' {
 			// Semikolon: kein zusätzlicher Abstand
 		}
 		// Kein Separator (Ende): kein zusätzlicher Abstand
 	}
-	outputText := output.String()
+	outputText := sb.String()
 	logger.Debug(logger.AreaTinyBasic, "[PRINT] Final output text: '%s' (length: %d)", outputText, len(outputText))
 
 	// Bestimme das noNewline Flag basierend auf Cursor-Status und Trennzeichen
@@ -206,7 +209,7 @@ func (b *TinyBASIC) cmdInput(args string) error {
 
 	// For simplicity, handle only one variable per INPUT for now.
 	// TODO: Extend INPUT to handle multiple comma-separated variables if needed.
-	varName := strings.ToUpper(strings.TrimSpace(varListStr))
+	varName := getCachedVarName(strings.TrimSpace(varListStr))
 	if strings.Contains(varName, ",") {
 		return NewBASICError(ErrCategorySyntax, "UNEXPECTED_TOKEN", b.currentLine == 0, b.currentLine).WithCommand("INPUT")
 	}

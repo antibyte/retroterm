@@ -29,7 +29,7 @@ func (b *TinyBASIC) cmdLet(args string) error {
 	// Store the original varName before ToUpper for later use with underscores
 
 	originalVarNameWithCase := varName
-	varName = strings.ToUpper(varName)
+	varName = getCachedVarName(varName) // Use cached normalization
 	// parseVariableWithIndex expects the interpreter (b) as receiver
 	baseVarName, arrayIndices, errPVWI := b.parseVariableWithIndex(originalVarNameWithCase) // Verwende originalVarNameWithCase
 
@@ -38,9 +38,9 @@ func (b *TinyBASIC) cmdLet(args string) error {
 	// or if no error occurred (simple variable), then validate the corresponding name.
 	if errPVWI == nil {
 		if baseVarName != "" { // It was an array expression
-			finalVarNameToValidate = strings.ToUpper(baseVarName)
+			finalVarNameToValidate = getCachedVarName(baseVarName)
 		} else { // It was a simple variable, not an array expression
-			finalVarNameToValidate = strings.ToUpper(originalVarNameWithCase)
+			finalVarNameToValidate = getCachedVarName(originalVarNameWithCase)
 		}
 	} else {
 		// An error from parseVariableWithIndex that is not nil indicates a syntax problem,
@@ -88,10 +88,10 @@ func (b *TinyBASIC) cmdLet(args string) error {
 			return NewBASICError(ErrCategorySyntax, "INVALID_ARRAY_DIMENSIONS", b.currentLine == 0, b.currentLine).WithCommand("LET")
 		}
 		// Variable Normalisierung: Speichere alle Variablen in Großbuchstaben  
-		b.variables[strings.ToUpper(arrayVarName)] = value
+		b.variables[getCachedVarName(arrayVarName)] = value
 	} else {
 		// Variable Normalisierung: Verwende immer Großbuchstaben für konsistente Speicherung
-		b.variables[strings.ToUpper(finalVarNameToValidate)] = value
+		b.variables[getCachedVarName(finalVarNameToValidate)] = value
 	}
 
 	return nil
@@ -132,7 +132,7 @@ func (b *TinyBASIC) cmdRead(args string) error {
 			b.dataPointer--
 			return WrapError(err, "READ", b.currentLine == 0, b.currentLine)
 		}
-		varName = strings.ToUpper(varName)
+		varName = getCachedVarName(varName)
 		if !isValidVarName(varName) { // Uses isValidVarName from utilities.go
 			b.dataPointer--
 			return NewBASICError(ErrCategorySyntax, "INVALID_VARIABLE_NAME", b.currentLine == 0, b.currentLine).WithCommand("READ")

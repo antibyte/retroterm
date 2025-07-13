@@ -1,0 +1,3 @@
+fix: Cursor visibility and blinking in terminal
+
+Implemented proper cursor blinking logic in `retroconsole.js` and integrated it with `retroterminal.js`. The cursor will now correctly blink when input is enabled and hide when entering editor or filename input modes.

@@ -306,7 +306,7 @@ func (b *TinyBASIC) cmdFor(args string, nextTokenIndex int) error {
 	if !isValidVarName(varName) || strings.HasSuffix(varName, "$") {
 		return NewBASICError(ErrCategorySyntax, "EXPECTED_VARIABLE", b.currentLine == 0, b.currentLine).WithCommand("FOR")
 	}
-	varNameUpper := strings.ToUpper(varName)
+	varNameUpper := getCachedVarName(varName)
 
 	// 2. Finde das "TO" Keyword (berücksichtige nicht Vorkommen in Strings oder Variablennamen)
 	toPos := -1
@@ -467,6 +467,8 @@ func (b *TinyBASIC) cmdFor(args string, nextTokenIndex int) error {
 		GosubDepth:            len(b.gosubStack), // Store current GOSUB depth
 	}
 
+	// Update index map for O(1) lookup performance
+	b.forLoopIndexMap[varNameUpper] = len(b.forLoops)
 	b.forLoops = append(b.forLoops, loopInfo)
 
 	// Check if loop should be skipped entirely from start.
@@ -495,11 +497,15 @@ func (b *TinyBASIC) cmdFor(args string, nextTokenIndex int) error {
 
 // cmdNext processes the end of a FOR loop iteration. Assumes lock is held.
 func (b *TinyBASIC) cmdNext(args string) error {
-	// CRITICAL: Context cancellation check to prevent deadlocks
-	select {
-	case <-b.ctx.Done():
-		return NewBASICError(ErrCategorySystem, "EXECUTION_CANCELLED", b.currentLine == 0, b.currentLine)
-	default:
+	// Optimized context cancellation check - only check every N iterations for performance
+	b.loopIterationCount++
+	if b.loopIterationCount >= b.contextCheckInterval {
+		select {
+		case <-b.ctx.Done():
+			return NewBASICError(ErrCategorySystem, "EXECUTION_CANCELLED", b.currentLine == 0, b.currentLine)
+		default:
+		}
+		b.loopIterationCount = 0 // Reset counter
 	}
 
 	// Verbesserte Erkennung von Variablennamen bei NEXT
@@ -515,18 +521,31 @@ func (b *TinyBASIC) cmdNext(args string) error {
 		}
 		varName = b.forLoops[len(b.forLoops)-1].Variable
 	} else {
-		// Variablennamen in Großbuchstaben umwandeln
-		varName = strings.ToUpper(varName)
+		// Variablennamen in Großbuchstaben umwandeln (mit Cache für bessere Performance)
+		varName = getCachedVarName(varName)
 	}
 
-	// Suche die passende Schleife im Stack (von innen nach außen)
+	// Optimized loop lookup using index map (O(1) instead of O(n))
 	found := false
 	forLoopStackIndex := -1
-	for i := len(b.forLoops) - 1; i >= 0; i-- {
-		if b.forLoops[i].Variable == varName {
+	if idx, exists := b.forLoopIndexMap[varName]; exists && idx < len(b.forLoops) {
+		// Verify the mapping is still valid (loop still exists at that index)
+		if b.forLoops[idx].Variable == varName {
 			found = true
-			forLoopStackIndex = i
-			break
+			forLoopStackIndex = idx
+		}
+	}
+	
+	// Fallback to linear search if index map is inconsistent (should not happen normally)
+	if !found {
+		for i := len(b.forLoops) - 1; i >= 0; i-- {
+			if b.forLoops[i].Variable == varName {
+				found = true
+				forLoopStackIndex = i
+				// Update index map to fix inconsistency
+				b.forLoopIndexMap[varName] = i
+				break
+			}
 		}
 	}
 
@@ -539,6 +558,10 @@ func (b *TinyBASIC) cmdNext(args string) error {
 	}
 
 	if len(b.forLoops) > forLoopStackIndex+1 {
+		// Update index map when removing loops from stack
+		for i := forLoopStackIndex + 1; i < len(b.forLoops); i++ {
+			delete(b.forLoopIndexMap, b.forLoops[i].Variable)
+		}
 		b.forLoops = b.forLoops[:forLoopStackIndex+1]
 	}
 
@@ -597,6 +620,8 @@ func (b *TinyBASIC) cmdNext(args string) error {
 		// Die Variable sollte den Wert haben, der die Schleifenbedingung nicht mehr erfüllt
 		// Das ist der aktuelle Wert in val.NumValue (bereits um Step erhöht)
 
+		// Remove from index map before popping from stack
+		delete(b.forLoopIndexMap, loop.Variable)
 		b.forLoops = b.forLoops[:len(b.forLoops)-1]
 		b.resumeSubStatementIndex = 0 // Sicherstellen, dass kein alter Index übrigbleibt
 

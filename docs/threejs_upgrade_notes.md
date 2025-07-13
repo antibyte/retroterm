@@ -25,3 +25,20 @@ When updating Three.js:
 
 ## Current Priority: LOW
 The current implementation works correctly. This is a future maintenance task.
+
+## Updated Status (July 2025)
+- Console warning confirmed but system fully functional
+- Chess interface working correctly with Three.js graphics
+- All bitmap rendering and 3D graphics operational
+- Deprecation warning is cosmetic and doesn't affect functionality
+
+## Immediate Workaround
+To suppress the warning temporarily, you could:
+1. Comment out the warning line in `js/three.min.js` (line 1)
+2. Or wait for the warning to be addressed in a future Three.js update
+
+## Long-term Solution Plan
+1. Switch to ES Modules when ready for a major update
+2. Update build system to handle ES Module imports
+3. Test all graphics functionality after migration
+4. Consider using a CDN version instead of local files

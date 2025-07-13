@@ -27,7 +27,7 @@ func tinyBasicDebugLog(format string, args ...interface{}) {
 	logger.Debug(logger.AreaTinyBasic, format, args...)
 }
 
-// Performance Optimizations: String Interning and Compiled Patterns
+// Performance Optimizations: String Interning, Compiled Patterns, Expression Caching, and String Builder Pooling
 var (
 	// String interning cache for frequently used strings
 	internedStrings = make(map[string]string)
@@ -37,6 +37,25 @@ var (
 	colonSplitPattern = regexp.MustCompile(`([^"]*"[^"]*")*[^"]*:`)
 	remPattern        = regexp.MustCompile(`^\s*REM\b`)
 	ifThenPattern     = regexp.MustCompile(`^\s*IF\s+.*\s+THEN\s+`)
+	
+	// Expression caching for repeated evaluations (especially in loops)
+	expressionCache = make(map[string]BASICValue)
+	exprCacheMutex  sync.RWMutex
+	exprCacheHits   int64
+	exprCacheMisses int64
+	
+	// String builder pool for reducing allocations
+	stringBuilderPool = sync.Pool{
+		New: func() interface{} {
+			sb := &strings.Builder{}
+			sb.Grow(256) // Pre-allocate reasonable capacity
+			return sb
+		},
+	}
+	
+	// Variable lookup cache for frequently accessed variables
+	varCache      = make(map[string]string) // Maps raw names to normalized names
+	varCacheMutex sync.RWMutex
 )
 
 // internString returns an interned version of the string to reduce memory usage
@@ -91,6 +110,80 @@ func returnBASICValue(v *BASICValue) {
 		v.IsNumeric = false
 		basicValuePool.Put(v)
 	}
+}
+
+// Expression caching functions
+func getCachedExpression(expr string) (BASICValue, bool) {
+	exprCacheMutex.RLock()
+	value, exists := expressionCache[expr]
+	exprCacheMutex.RUnlock()
+	
+	if exists {
+		exprCacheHits++
+		return value, true
+	}
+	exprCacheMisses++
+	return BASICValue{}, false
+}
+
+func setCachedExpression(expr string, value BASICValue) {
+	if len(expr) > 100 { // Don't cache very long expressions
+		return
+	}
+	
+	exprCacheMutex.Lock()
+	defer exprCacheMutex.Unlock()
+	
+	// Limit cache size to prevent memory leaks
+	if len(expressionCache) > 500 {
+		// Clear cache if it gets too large
+		expressionCache = make(map[string]BASICValue)
+	}
+	
+	expressionCache[expr] = value
+}
+
+func clearExpressionCache() {
+	exprCacheMutex.Lock()
+	defer exprCacheMutex.Unlock()
+	expressionCache = make(map[string]BASICValue)
+}
+
+// String builder pool functions
+func getStringBuilder() *strings.Builder {
+	return stringBuilderPool.Get().(*strings.Builder)
+}
+
+func returnStringBuilder(sb *strings.Builder) {
+	if sb != nil {
+		sb.Reset()
+		stringBuilderPool.Put(sb)
+	}
+}
+
+// Variable name caching functions
+func getCachedVarName(rawName string) string {
+	varCacheMutex.RLock()
+	normalized, exists := varCache[rawName]
+	varCacheMutex.RUnlock()
+	
+	if exists {
+		return normalized
+	}
+	
+	// Cache miss - normalize and cache
+	normalized = strings.ToUpper(rawName)
+	
+	varCacheMutex.Lock()
+	defer varCacheMutex.Unlock()
+	
+	// Limit cache size
+	if len(varCache) > 1000 {
+		varCache = make(map[string]string)
+	}
+	
+	varCache[rawName] = normalized
+	return normalized
 }
 
 // Helper functions for creating BASICValues from the pool
@@ -182,6 +275,11 @@ func (b *TinyBASIC) ResetExecutionState() {
 	b.pendingMCPFilename = ""    // Clear pending MCP filename
 	b.gosubStack = b.gosubStack[:0]
 	b.forLoops = b.forLoops[:0]
+	b.forLoopIndexMap = make(map[string]int) // Clear loop index map
+	// Clear any cached expressions when resetting execution state
+	clearExpressionCache()
+	// Reset performance counters
+	b.loopIterationCount = 0
 	b.dataPointer = 0
 	b.printCursorOnSameLine = false
 	b.inputControlEnableSent = false
@@ -209,6 +307,7 @@ type TinyBASIC struct {
 	currentLine              int                   // The line number currently being executed (0 if not running).
 	inputVar                 string                // Name of the variable waiting for INPUT, empty otherwise.
 	forLoops                 []ForLoopInfo         // Stack for tracking active FOR loops.
+	forLoopIndexMap          map[string]int        // Maps variable names to forLoops indices for O(1) lookup
 	gosubStack               []int                 // Stack for tracking GOSUB return points (renamed from runningStack).
 	data                     []string              // Stores DATA statement values, populated by rebuildData.
 	dataPointer              int                   // Current position within the data items for READ.
@@ -258,6 +357,10 @@ type TinyBASIC struct {
 	// Rate Limiting für NOISE-Befehle
 	noiseCommandTimestamps []time.Time
 	maxNoiseRatePerSecond  int
+	
+	// Performance optimization counters
+	loopIterationCount       int                   // Count iterations since last context check
+	contextCheckInterval     int                   // How often to check context (default: every 1000 iterations)
 
 	// Text-Cursor und Text-Attribute
 	cursorX         int  // Aktuelle Cursor X-Position (0-basiert)
@@ -319,7 +422,8 @@ func NewTinyBASIC(osys *tinyos.TinyOS) *TinyBASIC {
 		variables:    make(map[string]BASICValue),
 		programLines: make([]int, 0),
 		openFiles:    make(map[int]*OpenFile),
-		forLoops:     make([]ForLoopInfo, 0, MaxForLoopDepth/2), // Pre-allocate reasonably
+		forLoops:        make([]ForLoopInfo, 0, MaxForLoopDepth/2), // Pre-allocate reasonably
+		forLoopIndexMap: make(map[string]int),                       // Initialize loop index map
 		gosubStack:   make([]int, 0, MaxGosubDepth/2),           // Pre-allocate reasonably
 		data:         make([]string, 0),
 		OutputChan:   make(chan shared.Message, OutputChannelBufferSize), termCols: DefaultTermCols,
@@ -347,6 +451,7 @@ func NewTinyBASIC(osys *tinyos.TinyOS) *TinyBASIC {
 		spriteBatchTimer:       nil,          // Will be initialized when needed
 		spriteBatchMutex:       sync.Mutex{}, // Initialize mutex
 		batchingEnabled:        true,         // Enable batching by default
+		contextCheckInterval:   1000,         // Check context every 1000 loop iterations for performance
 	}
 
 	// Seed the random number generator once

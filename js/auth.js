@@ -83,7 +83,7 @@ class AuthManager {    constructor() {
             
             const payload = JSON.parse(atob(parts[1]));
             if (payload && payload.username === 'dyson') {
-                console.log('[AUTH] Clearing temporary user token and session on browser refresh');
+                // console.log('[AUTH] Clearing temporary user token and session on browser refresh');
                 this.setStoredToken(null);
                 this.setStoredSessionId(null);
                 return true;
@@ -100,18 +100,18 @@ class AuthManager {    constructor() {
      * Initialize authentication - check for existing token or create new session
      */
     async initialize() {
-        console.log('[AUTH] Initializing authentication...');
+        // console.log('[AUTH] Initializing authentication...');
         
         // Try to validate existing token (temporary user tokens already cleared in constructor)
         if (this.token) {
             const valid = await this.validateToken();
             if (valid) {
-                console.log('[AUTH] Existing token is valid');
+                // console.log('[AUTH] Existing token is valid');
                 return true;
             }
         }
         
-        console.log('[AUTH] No valid token found, creating new session...');
+        // console.log('[AUTH] No valid token found, creating new session...');
         
         // Create a new guest session
         const sessionId = await this.createSession();
@@ -123,7 +123,7 @@ class AuthManager {    constructor() {
         // Login with the new session ID to get JWT token
         const loginSuccess = await this.login(sessionId);
         if (loginSuccess) {
-            console.log('[AUTH] Successfully authenticated with new session');
+            // console.log('[AUTH] Successfully authenticated with new session');
             return true;
         }
         
@@ -148,7 +148,7 @@ class AuthManager {    constructor() {
             const data = await response.json();
             
             if (data.success) {
-                console.log('[AUTH] Session created:', data.sessionId);
+                // console.log('[AUTH] Session created:', data.sessionId);
                 return data.sessionId;
             } else {
                 console.error('[AUTH] Session creation failed:', data.message);
@@ -164,7 +164,7 @@ class AuthManager {    constructor() {
      * Login with session ID and get JWT token
      */
     async login(sessionId) {
-        console.log('[AUTH] Logging in with session:', sessionId);
+        // console.log('[AUTH] Logging in with session:', sessionId);
         
         try {
             const response = await fetch(`${this.baseUrl}/api/auth/login`, {
@@ -182,7 +182,7 @@ class AuthManager {    constructor() {
               if (data.success) {
                 this.setStoredToken(data.token);
                 this.setStoredSessionId(data.sessionId);
-                console.log('[AUTH] Login successful, token stored');
+                // console.log('[AUTH] Login successful, token stored');
                 return true;
             } else {
                 console.error('[AUTH] Login failed:', data.message);
@@ -210,10 +210,10 @@ class AuthManager {    constructor() {
             const data = await response.json();
               if (data.success) {
                 this.setStoredSessionId(data.sessionId);
-                console.log('[AUTH] Token validated for session:', this.sessionId);
+                // console.log('[AUTH] Token validated for session:', this.sessionId);
                 return true;
             } else {
-                console.log('[AUTH] Token validation failed:', data.message);
+                // console.log('[AUTH] Token validation failed:', data.message);
                 this.setStoredToken(null);
                 this.setStoredSessionId(null);
                 return false;
@@ -229,7 +229,7 @@ class AuthManager {    constructor() {
      * Logout and clear token
      */
     async logout() {
-        console.log('[AUTH] Logging out...');
+        // console.log('[AUTH] Logging out...');
         
         try {
             await fetch(`${this.baseUrl}/api/auth/logout`, {
@@ -241,7 +241,7 @@ class AuthManager {    constructor() {
         }        
         this.setStoredToken(null);
         this.setStoredSessionId(null);
-        console.log('[AUTH] Logged out');
+        // console.log('[AUTH] Logged out');
     }
 
     /**

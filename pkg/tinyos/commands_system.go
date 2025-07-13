@@ -844,25 +844,25 @@ func (os *TinyOS) cmdChess(args []string, sessionID string) []shared.Message {
 	session.ChessGame = chess.NewChessUI(difficulty, playerColor)
 	session.ChessActive = true
 	os.sessions[sessionID] = session
+	os.sessionMutex.Unlock() // Unlock after all session modifications
 
 	logger.Info(logger.AreaChess, "New chess game started for session %s, difficulty: %d, player color: %d", sessionID, difficulty, int(playerColor))
 
 	chessGame := session.ChessGame
-	os.sessionMutex.Unlock()
-	// Start new chess game - show welcome message and board
+
+	// Set the authoritative input mode to Chess
+	// This message MUST be sent first to ensure the frontend is in the correct mode
+	// before processing any UI rendering messages.
 	messages := []shared.Message{
 		{Type: shared.MessageTypeClear},
+		{Type: shared.MessageTypeMode, Content: "CHESS"},
 		{Type: shared.MessageTypeText, Content: "Welcome to TinyOS Chess!"},
 		{Type: shared.MessageTypeText, Content: fmt.Sprintf("Difficulty: %s", getDifficultyName(difficulty))},
 		{Type: shared.MessageTypeText, Content: fmt.Sprintf("You are playing as: %s", getColorName(playerColor))},
 		{Type: shared.MessageTypeText, Content: ""},
-		{Type: shared.MessageTypeText, Content: "Commands:"},
-		{Type: shared.MessageTypeText, Content: "  move <from> <to> - Make a move (e.g., move e2 e4)"},
-		{Type: shared.MessageTypeText, Content: "  help - Show help"},
-		{Type: shared.MessageTypeText, Content: "  quit - Exit chess game"},
-		{Type: shared.MessageTypeText, Content: ""},
 	}
-	// Add board rendering
+
+	// Add board rendering messages
 	logger.Debug(logger.AreaChess, "Rendering initial chess board for new game")
 	boardMessages := chessGame.RenderBoard()
 	messages = append(messages, boardMessages...)
