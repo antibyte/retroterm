@@ -3,6 +3,7 @@ package chess
 import (
 	"errors"
 	"fmt"
+	"math"
 	"math/rand"
 	"strings"
 )
@@ -374,17 +375,40 @@ func (e *ChessEngine) getBestMove(moves []Move, depth int) *Move {
 	return bestMove
 }
 
-// evaluatePosition returns a simple evaluation of the current position
+// evaluatePosition returns an enhanced evaluation of the current position
 func (e *ChessEngine) evaluatePosition() float64 {
 	score := 0.0
 
 	pieceValues := map[PieceType]float64{
 		Pawn:   1.0,
 		Knight: 3.0,
-		Bishop: 3.0,
+		Bishop: 3.2, // Bishops slightly favored
 		Rook:   5.0,
 		Queen:  9.0,
-		King:   100.0,
+		King:   200.0, // Higher king value for safety
+	}
+
+	// Position bonus tables for more aggressive play
+	pawnBonus := [8][8]float64{
+		{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+		{0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5},
+		{0.1, 0.1, 0.2, 0.3, 0.3, 0.2, 0.1, 0.1},
+		{0.05, 0.05, 0.1, 0.25, 0.25, 0.1, 0.05, 0.05},
+		{0.0, 0.0, 0.0, 0.2, 0.2, 0.0, 0.0, 0.0},
+		{0.05, -0.05, -0.1, 0.0, 0.0, -0.1, -0.05, 0.05},
+		{0.05, 0.1, 0.1, -0.2, -0.2, 0.1, 0.1, 0.05},
+		{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0},
+	}
+
+	knightBonus := [8][8]float64{
+		{-0.5, -0.4, -0.3, -0.3, -0.3, -0.3, -0.4, -0.5},
+		{-0.4, -0.2, 0.0, 0.0, 0.0, 0.0, -0.2, -0.4},
+		{-0.3, 0.0, 0.1, 0.15, 0.15, 0.1, 0.0, -0.3},
+		{-0.3, 0.05, 0.15, 0.2, 0.2, 0.15, 0.05, -0.3},
+		{-0.3, 0.0, 0.15, 0.2, 0.2, 0.15, 0.0, -0.3},
+		{-0.3, 0.05, 0.1, 0.15, 0.15, 0.1, 0.05, -0.3},
+		{-0.4, -0.2, 0.0, 0.05, 0.05, 0.0, -0.2, -0.4},
+		{-0.5, -0.4, -0.3, -0.3, -0.3, -0.3, -0.4, -0.5},
 	}
 
 	for row := 0; row < 8; row++ {
@@ -395,20 +419,147 @@ func (e *ChessEngine) evaluatePosition() float64 {
 			}
 
 			value := pieceValues[piece.Type]
+
+			// Add positional bonuses
+			var posBonus float64 = 0
+			if piece.Type == Pawn {
+				if piece.Color == White {
+					posBonus = pawnBonus[7-row][col] // Flip for white
+				} else {
+					posBonus = pawnBonus[row][col]
+				}
+			} else if piece.Type == Knight {
+				posBonus = knightBonus[row][col]
+			}
+
+			// Center control bonus for all pieces
+			centerDistance := math.Abs(3.5-float64(row)) + math.Abs(3.5-float64(col))
+			centerBonus := (7.0 - centerDistance) * 0.05
+
+			totalValue := value + posBonus + centerBonus
+
 			if piece.Color == White {
-				score += value
+				score += totalValue
 			} else {
-				score -= value
+				score -= totalValue
 			}
 		}
 	}
 
+	// Bonus for attacking enemy pieces
+	score += e.calculateAttackBonus(White) * 0.3
+	score -= e.calculateAttackBonus(Black) * 0.3
+
+	// Penalty for king exposure
+	score -= e.getKingExposure(White) * 0.5
+	score += e.getKingExposure(Black) * 0.5
+
 	return score
 }
 
-// checkGameOver checks if the game is over
+// calculateAttackBonus gives points for attacking enemy pieces
+func (e *ChessEngine) calculateAttackBonus(color Color) float64 {
+	bonus := 0.0
+	opponentColor := Black
+	if color == Black {
+		opponentColor = White
+	}
+
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			piece := e.Board[row][col]
+			if piece != nil && piece.Color == color {
+				// Count attacks on enemy pieces
+				for targetRow := 0; targetRow < 8; targetRow++ {
+					for targetCol := 0; targetCol < 8; targetCol++ {
+						target := e.Board[targetRow][targetCol]
+						if target != nil && target.Color == opponentColor {
+							if e.canPieceAttack(Position{row, col}, Position{targetRow, targetCol}) {
+								// Bonus based on value of attacked piece
+								pieceValues := map[PieceType]float64{
+									Pawn: 0.1, Knight: 0.3, Bishop: 0.3, Rook: 0.5, Queen: 0.9, King: 2.0,
+								}
+								bonus += pieceValues[target.Type]
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return bonus
+}
+
+// getKingExposure calculates how exposed a king is
+func (e *ChessEngine) getKingExposure(color Color) float64 {
+	// Find king position
+	var kingPos Position
+	kingFound := false
+
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			piece := e.Board[row][col]
+			if piece != nil && piece.Type == King && piece.Color == color {
+				kingPos = Position{row, col}
+				kingFound = true
+				break
+			}
+		}
+		if kingFound {
+			break
+		}
+	}
+
+	if !kingFound {
+		return 100.0 // No king = maximum exposure
+	}
+
+	exposure := 0.0
+
+	// Count how many squares around the king are attacked
+	for dr := -1; dr <= 1; dr++ {
+		for dc := -1; dc <= 1; dc++ {
+			if dr == 0 && dc == 0 {
+				continue
+			}
+			checkPos := Position{kingPos.Row + dr, kingPos.Col + dc}
+			if IsValidPosition(checkPos) {
+				if e.isSquareAttacked(checkPos, color) {
+					exposure += 1.0
+				}
+			}
+		}
+	}
+
+	return exposure
+}
+
+// isSquareAttacked checks if a square is attacked by the opponent
+func (e *ChessEngine) isSquareAttacked(pos Position, defendingColor Color) bool {
+	opponentColor := Black
+	if defendingColor == Black {
+		opponentColor = White
+	}
+
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			piece := e.Board[row][col]
+			if piece != nil && piece.Color == opponentColor {
+				if e.canPieceAttack(Position{row, col}, pos) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+
+// checkGameOver checks if the game is over (checkmate, stalemate, or king captured)
 func (e *ChessEngine) checkGameOver() {
-	// Simple check - if no pieces left for a side (simplified)
+	// First check if any king was captured (emergency fallback)
 	whiteKing := false
 	blackKing := false
 
@@ -425,15 +576,119 @@ func (e *ChessEngine) checkGameOver() {
 		}
 	}
 
+	// King captured - immediate game over
 	if !whiteKing {
 		e.GameOver = true
 		winner := Black
 		e.Winner = &winner
+		return
 	} else if !blackKing {
 		e.GameOver = true
 		winner := White
 		e.Winner = &winner
+		return
 	}
+
+	// Check for checkmate or stalemate
+	currentPlayerInCheck := e.isInCheck(e.CurrentPlayer)
+	validMoves := e.getAllValidMoves(e.CurrentPlayer)
+
+	if len(validMoves) == 0 {
+		e.GameOver = true
+		if currentPlayerInCheck {
+			// Checkmate - opponent wins
+			if e.CurrentPlayer == White {
+				winner := Black
+				e.Winner = &winner
+			} else {
+				winner := White
+				e.Winner = &winner
+			}
+		} else {
+			// Stalemate - draw (no winner)
+			e.Winner = nil
+		}
+	}
+}
+
+// isInCheck determines if the given color's king is in check
+func (e *ChessEngine) isInCheck(color Color) bool {
+	// Find the king
+	var kingPos Position
+	kingFound := false
+	
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			piece := e.Board[row][col]
+			if piece != nil && piece.Type == King && piece.Color == color {
+				kingPos = Position{row, col}
+				kingFound = true
+				break
+			}
+		}
+		if kingFound {
+			break
+		}
+	}
+
+	if !kingFound {
+		return false // No king found
+	}
+
+	// Check if any opponent piece can attack the king
+	opponentColor := White
+	if color == White {
+		opponentColor = Black
+	}
+
+	for row := 0; row < 8; row++ {
+		for col := 0; col < 8; col++ {
+			piece := e.Board[row][col]
+			if piece != nil && piece.Color == opponentColor {
+				if e.canPieceAttack(Position{row, col}, kingPos) {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// canPieceAttack checks if a piece at 'from' can attack the position 'to'
+func (e *ChessEngine) canPieceAttack(from, to Position) bool {
+	piece := e.GetPiece(from)
+	if piece == nil {
+		return false
+	}
+
+	// Use the same movement logic as IsValidMove but ignore king safety
+	return e.isValidMovePattern(from, to, piece.Type, piece.Color)
+}
+
+// isValidMovePattern checks if a piece can move from 'from' to 'to' based on piece type
+func (e *ChessEngine) isValidMovePattern(from, to Position, pieceType PieceType, color Color) bool {
+	if !IsValidPosition(to) {
+		return false
+	}
+
+	// Check piece-specific movement rules
+	switch pieceType {
+	case Pawn:
+		return e.isValidPawnMove(from, to, color)
+	case Rook:
+		return e.isValidRookMove(from, to)
+	case Knight:
+		return e.isValidKnightMove(from, to)
+	case Bishop:
+		return e.isValidBishopMove(from, to)
+	case Queen:
+		return e.isValidQueenMove(from, to)
+	case King:
+		return e.isValidKingMove(from, to)
+	}
+
+	return false
 }
 
 // GetBoardString returns a string representation of the board

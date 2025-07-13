@@ -22,6 +22,7 @@ type ChessUI struct {
 	PlayerColor    Color
 	ShowCoords     bool
 	showingHelp    bool
+	gameOverPrompt bool   // True when showing "play again?" prompt
 	Messages       []shared.Message
 	LastMoveText   string // Store the last move text for display
 }
@@ -176,7 +177,28 @@ func (ui *ChessUI) RenderBoard() []shared.Message {
 	if lastMoveInfo == "" {
 		lastMoveInfo = "Game started"
 	}
-	statusLine := fmt.Sprintf("%s (Enter quit to exit or help for help)", lastMoveInfo)
+	
+	// Check for special game states
+	var statusPrefix string
+	if ui.Engine.GameOver {
+		if ui.Engine.Winner != nil {
+			winnerName := "White"
+			if *ui.Engine.Winner == Black {
+				winnerName = "Black"
+			}
+			statusPrefix = fmt.Sprintf("CHECKMATE! %s wins! ", winnerName)
+		} else {
+			statusPrefix = "STALEMATE! Draw! "
+		}
+	} else if ui.Engine.isInCheck(ui.Engine.CurrentPlayer) {
+		playerName := "White"
+		if ui.Engine.CurrentPlayer == Black {
+			playerName = "Black"
+		}
+		statusPrefix = fmt.Sprintf("CHECK! %s is in check! ", playerName)
+	}
+	
+	statusLine := fmt.Sprintf("%s%s (Enter quit to exit or help for help)", statusPrefix, lastMoveInfo)
 
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeLocate,
@@ -277,7 +299,13 @@ func (ui *ChessUI) RenderPrompt() []shared.Message {
 	messages := make([]shared.Message, 0)
 	
 	// Help text on line 22 (second to last line)
-	helpText := "Enter your move (eg. a2 a4) or type quit to exit:"
+	var helpText string
+	if ui.gameOverPrompt {
+		helpText = "Do you want to play again? (y/n)"
+	} else {
+		helpText = "Enter your move (eg. a2 a4) or type quit to exit:"
+	}
+	
 	helpX := (80 - len(helpText)) / 2
 	messages = append(messages, shared.Message{
 		Type:    shared.MessageTypeLocate,
@@ -413,6 +441,44 @@ func (ui *ChessUI) HandleInput(input string) []shared.Message {
 		return messages
 	}
 
+	// In game over mode: handle play again prompt
+	if ui.gameOverPrompt {
+		logger.Info(logger.AreaChess, "HandleInput: Game over prompt - input: %q", input)
+		inputLower := strings.ToLower(strings.TrimSpace(input))
+		
+		if inputLower == "y" || inputLower == "yes" {
+			// Restart the game
+			ui.Engine = NewChessEngine(ui.Engine.Difficulty)
+			ui.gameOverPrompt = false
+			ui.LastMoveText = "Game restarted"
+			
+			// Render new game
+			messages = append(messages, ui.RenderBoard()...)
+			messages = append(messages, ui.RenderPrompt()...)
+			return messages
+		} else if inputLower == "n" || inputLower == "no" {
+			// Quit chess game - send quit signal
+			messages = append(messages, shared.Message{
+				Type:    shared.MessageTypeClear,
+				Content: "",
+			})
+			messages = append(messages, shared.Message{
+				Type:    shared.MessageTypeText,
+				Content: "Thanks for playing chess!",
+			})
+			messages = append(messages, shared.Message{
+				Type:    shared.MessageTypeText,
+				Content: "CHESS_QUIT_SIGNAL", // Special signal for commands.go to detect quit
+			})
+			return messages
+		} else {
+			// Invalid input, show prompt again
+			messages = append(messages, ui.RenderBoard()...)
+			messages = append(messages, ui.RenderPrompt()...)
+			return messages
+		}
+	}
+
 	// Parse move input (e.g., "e2 e4" or "e2-e4")
 	input = strings.TrimSpace(input)
 	input = strings.ToLower(input)
@@ -502,14 +568,29 @@ func (ui *ChessUI) HandleInput(input string) []shared.Message {
 	// Move successful
 	logger.Debug(logger.AreaChess, "HandleInput: Move successful: %s -> %s", parts[0], parts[1])
 
+	// Check if the move puts the opponent in check
+	opponentColor := Black
+	if ui.PlayerColor == Black {
+		opponentColor = White
+	}
+	
 	// Update the last move text for display
-	ui.LastMoveText = fmt.Sprintf("Player: %s -> %s", parts[0], parts[1])
+	moveText := fmt.Sprintf("Player: %s -> %s", parts[0], parts[1])
+	if ui.Engine.isInCheck(opponentColor) {
+		moveText += " - Check!"
+	}
+	ui.LastMoveText = moveText
 
 	// Don't send the move text as a separate message anymore since it's shown in status line
 	// messages = append(messages, shared.Message{
 	//	Type:    shared.MessageTypeText,
 	//	Content: fmt.Sprintf("Move: %s -> %s", parts[0], parts[1]),
 	// })
+
+	// Check if game is over after player move
+	if ui.Engine.GameOver && !ui.gameOverPrompt {
+		ui.gameOverPrompt = true
+	}
 
 	// Render updated board (which will automatically handle computer move if needed)
 	boardMessages := ui.RenderBoard()
@@ -557,8 +638,14 @@ func (ui *ChessUI) CheckAndMakeComputerMove() []shared.Message {
 		fromNotation := PositionToNotation(computerMove.From)
 		toNotation := PositionToNotation(computerMove.To)
 
+		// Check if the computer move puts the player in check
+		moveText := fmt.Sprintf("Computer: %s -> %s", fromNotation, toNotation)
+		if ui.Engine.isInCheck(ui.PlayerColor) {
+			moveText += " - Check!"
+		}
+		
 		// Update the last move text for display
-		ui.LastMoveText = fmt.Sprintf("Computer: %s -> %s", fromNotation, toNotation)
+		ui.LastMoveText = moveText
 
 		// Don't send the move text as a separate message anymore since it's shown in status line
 		// messages = append(messages, shared.Message{
@@ -567,22 +654,8 @@ func (ui *ChessUI) CheckAndMakeComputerMove() []shared.Message {
 		// })
 
 		// Check if game is over after computer move
-		if ui.Engine.GameOver {
-			if ui.Engine.Winner != nil {
-				winnerName := "White"
-				if *ui.Engine.Winner == Black {
-					winnerName = "Black"
-				}
-				messages = append(messages, shared.Message{
-					Type:    shared.MessageTypeText,
-					Content: fmt.Sprintf("Game Over! %s wins!", winnerName),
-				})
-			} else {
-				messages = append(messages, shared.Message{
-					Type:    shared.MessageTypeText,
-					Content: "Game Over! It's a draw!",
-				})
-			}
+		if ui.Engine.GameOver && !ui.gameOverPrompt {
+			ui.gameOverPrompt = true
 		}
 	}
 
