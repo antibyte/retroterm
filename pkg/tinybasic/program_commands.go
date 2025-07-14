@@ -79,7 +79,23 @@ func (b *TinyBASIC) cmdRun(args string) (string, error) {
 	// Send empty line to separate RUN command from program output
 	b.sendEmptyLine() // Send empty line for separation
 
-	go b.runProgramInternal(b.ctx)
+	// Try bytecode execution first, fall back to interpreted if needed
+	if b.useBytecode {
+		err := b.compileProgramIfNeeded()
+		if err == nil {
+			// Run bytecode version
+			tinyBasicDebugLog("Running program with bytecode VM")
+			go b.runBytecodeProgram()
+		} else {
+			// Fall back to interpreted execution
+			tinyBasicDebugLog("Bytecode compilation failed, falling back to interpreted execution: %v", err)
+			go b.runProgramInternal(b.ctx)
+		}
+	} else {
+		// Run interpreted version
+		go b.runProgramInternal(b.ctx)
+	}
+	
 	return "", nil
 }
 

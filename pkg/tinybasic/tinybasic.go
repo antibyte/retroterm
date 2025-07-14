@@ -285,6 +285,10 @@ func (b *TinyBASIC) ResetExecutionState() {
 	b.inputControlEnableSent = false
 	// GOTO Cleanup Counter zurücksetzen
 	b.gotoCleanupCount = make(map[string]int)
+	// Reset bytecode VM state
+	if b.bytecodeVM != nil {
+		b.bytecodeVM.Reset()
+	}
 	// Kontext für RUN erneuern
 	b.ctx, b.cancel = context.WithCancel(context.Background())
 	b.mu.Unlock()
@@ -304,8 +308,15 @@ type TinyBASIC struct {
 	program                  map[int]string        // Stores program lines (line number -> code).
 	variables                map[string]BASICValue // Stores variable values (name -> value).
 	programLines             []int                 // Sorted list of program line numbers for efficient lookup and LIST.
+	
+	// Bytecode compilation and execution
+	compiledProgram          *BytecodeProgram      // Compiled bytecode version of the program
+	bytecodeVM               *BytecodeVM           // Virtual machine for bytecode execution
+	useBytecode              bool                  // Flag to enable/disable bytecode execution
+	compiledHash             string                // Hash of compiled program to detect changes
 	currentLine              int                   // The line number currently being executed (0 if not running).
 	inputVar                 string                // Name of the variable waiting for INPUT, empty otherwise.
+	inputPC                  int                   // Program counter for bytecode VM to resume after INPUT
 	forLoops                 []ForLoopInfo         // Stack for tracking active FOR loops.
 	forLoopIndexMap          map[string]int        // Maps variable names to forLoops indices for O(1) lookup
 	gosubStack               []int                 // Stack for tracking GOSUB return points (renamed from runningStack).
@@ -376,6 +387,7 @@ type TinyBASIC struct {
 	pendingMCPCode     string                 // Temporarily stores generated MCP code until filename is provided
 	pendingMCPFilename string                 // Stores the original filename for MCP edit operations
 	waitingForMCPInput bool                   // Flag indicating if we're waiting for MCP filename input
+	waitingInput       bool                   // Flag indicating if we're waiting for any user input
 
 	// Sprite Batching System for Performance
 	spriteBatch      []shared.Message // Batch of sprite updates to send together
@@ -452,6 +464,10 @@ func NewTinyBASIC(osys *tinyos.TinyOS) *TinyBASIC {
 		spriteBatchMutex:       sync.Mutex{}, // Initialize mutex
 		batchingEnabled:        true,         // Enable batching by default
 		contextCheckInterval:   1000,         // Check context every 1000 loop iterations for performance
+		
+		// Bytecode compilation and execution
+		useBytecode:            true,         // Enable bytecode by default for performance
+		compiledHash:           "",           // No program compiled yet
 	}
 
 	// Seed the random number generator once
@@ -471,6 +487,9 @@ func NewTinyBASIC(osys *tinyos.TinyOS) *TinyBASIC {
 
 	// INKEY$ Variable initialisieren (leer)
 	b.variables["INKEY$"] = BASICValue{StrValue: "", IsNumeric: false}
+
+	// Initialize bytecode VM
+	b.bytecodeVM = NewBytecodeVM(b)
 
 	return b
 }
@@ -811,6 +830,36 @@ func (b *TinyBASIC) ExecuteInputResponse(input string) []shared.Message {
 
 	// Check if a program was running and waiting for this input.
 	if b.running {
+		// Check if we're using bytecode execution and need to resume VM
+		if b.useBytecode && b.bytecodeVM != nil && b.inputPC > 0 {
+			// Resume bytecode VM execution from stored PC
+			resumePC := b.inputPC
+			b.inputPC = 0 // Clear stored PC
+			b.mu.Unlock() // Unlock before resuming VM
+			
+			// Convert input to BASICValue
+			var inputValue BASICValue
+			if strings.HasSuffix(varName, "$") {
+				inputValue = newStringBASICValue(input)
+			} else {
+				if val, err := strconv.ParseFloat(input, 64); err == nil {
+					inputValue = newNumericBASICValue(val)
+				} else {
+					inputValue = newNumericBASICValue(0) // Default to 0 for invalid input
+				}
+			}
+			
+			// Resume VM execution
+			go func() {
+				err := b.bytecodeVM.Resume(resumePC, inputValue, varName)
+				if err != nil {
+					b.sendMessageWrapped(shared.MessageTypeText, fmt.Sprintf("Runtime error: %s", err.Error()))
+				}
+			}()
+			return nil
+		}
+		
+		// Traditional interpreted execution
 		prevLine := b.currentLine
 		nextLine, found := b.findNextLine(prevLine) // Assumes lock held
 		if !found {
@@ -821,7 +870,8 @@ func (b *TinyBASIC) ExecuteInputResponse(input string) []shared.Message {
 			return nil
 		}
 		b.currentLine = nextLine
-		b.mu.Unlock() // Unlock to allow the run loop goroutine to proceed.	} else {
+		b.mu.Unlock() // Unlock to allow the run loop goroutine to proceed.
+	} else {
 		b.mu.Unlock() // Unlock the state.
 		b.sendMessageWrapped(shared.MessageTypeText, "OK")
 	}
