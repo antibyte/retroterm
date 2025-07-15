@@ -58,22 +58,33 @@ const (
 	OP_INPUT    // Input to variable
 
 	// Special operations
-	OP_HALT  // End program execution
-	OP_NOP   // No operation
-	OP_SOUND // Play sound
-	OP_WAIT  // Wait/delay
-	OP_NOISE // Play noise
-	OP_BEEP  // Play beep
-	OP_CLS   // Clear screen
-	OP_MUSIC // Music command
-	OP_SPEAK // Speak command
-	OP_PLOT  // Plot pixel
-	OP_LINE  // Draw line
-	OP_RECT  // Draw rectangle
-	OP_CIRCLE // Draw circle
-	OP_SPRITE // Sprite command
-	OP_VECTOR // Vector command
-	OP_DEBUG // Debug breakpoint
+	OP_HALT          // End program execution
+	OP_NOP           // No operation
+	OP_SOUND         // Play sound
+	OP_WAIT          // Wait/delay
+	OP_NOISE         // Play noise
+	OP_BEEP          // Play beep
+	OP_CLS           // Clear screen
+	OP_MUSIC         // Music command
+	OP_SPEAK         // Speak command
+	OP_PLOT          // Plot pixel
+	OP_LINE          // Draw line
+	OP_RECT          // Draw rectangle
+	OP_CIRCLE        // Draw circle
+	OP_SPRITE        // Sprite command
+	OP_VECTOR        // Vector command
+	OP_SAY           // Say command
+	OP_LOCATE        // Locate cursor
+	OP_COLOR         // Set color
+	OP_KEY           // Key input
+	OP_DATA          // Data statement
+	OP_READ          // Read data
+	OP_DIM           // Dimension arrays
+	OP_TEXTGFX       // Text graphics
+	OP_CLEARGRAPHICS // Clear graphics
+	OP_INVERSE       // Inverse text
+	OP_RANDOMIZE     // Randomize seed
+	OP_DEBUG         // Debug breakpoint
 
 	// Function calls
 	OP_CALL_FUNC // Call built-in function
@@ -105,6 +116,39 @@ type BytecodeProgram struct {
 type VMStack struct {
 	data []BASICValue
 	top  int
+	size int
+}
+
+// String intern table for optimization
+var stringInternTable = make(map[string]string)
+var stringInternMutex sync.RWMutex
+
+// InternString interns a string to reduce allocations
+func InternString(s string) string {
+	stringInternMutex.RLock()
+	if interned, exists := stringInternTable[s]; exists {
+		stringInternMutex.RUnlock()
+		return interned
+	}
+	stringInternMutex.RUnlock()
+
+	stringInternMutex.Lock()
+	defer stringInternMutex.Unlock()
+	if interned, exists := stringInternTable[s]; exists {
+		return interned
+	}
+	stringInternTable[s] = s
+	return s
+}
+
+// GetPooledBASICValue gets a BASICValue from the pool (use existing pool from tinybasic.go)
+func GetPooledBASICValue() *BASICValue {
+	return getBASICValue()
+}
+
+// PutPooledBASICValue returns a BASICValue to the pool (use existing pool from tinybasic.go)
+func PutPooledBASICValue(v *BASICValue) {
+	returnBASICValue(v)
 }
 
 // NewVMStack creates a new VM stack
@@ -112,12 +156,13 @@ func NewVMStack(size int) *VMStack {
 	return &VMStack{
 		data: make([]BASICValue, size),
 		top:  -1,
+		size: size,
 	}
 }
 
-// Push value onto stack
+// Push value onto stack (optimized)
 func (s *VMStack) Push(value BASICValue) error {
-	if s.top >= len(s.data)-1 {
+	if s.top >= s.size-1 {
 		return fmt.Errorf("stack overflow")
 	}
 	s.top++
@@ -125,7 +170,13 @@ func (s *VMStack) Push(value BASICValue) error {
 	return nil
 }
 
-// Pop value from stack
+// FastPush value onto stack without bounds checking (unsafe but fast)
+func (s *VMStack) FastPush(value BASICValue) {
+	s.top++
+	s.data[s.top] = value
+}
+
+// Pop value from stack (optimized)
 func (s *VMStack) Pop() (BASICValue, error) {
 	if s.top < 0 {
 		return BASICValue{}, fmt.Errorf("stack underflow")
@@ -133,6 +184,13 @@ func (s *VMStack) Pop() (BASICValue, error) {
 	value := s.data[s.top]
 	s.top--
 	return value, nil
+}
+
+// FastPop value from stack without bounds checking (unsafe but fast)
+func (s *VMStack) FastPop() BASICValue {
+	value := s.data[s.top]
+	s.top--
+	return value
 }
 
 // Peek at top of stack without popping
@@ -148,7 +206,17 @@ func (s *VMStack) IsEmpty() bool {
 	return s.top < 0
 }
 
-// Size returns current stack size
+// HasSpace returns true if stack has space for n more items
+func (s *VMStack) HasSpace(n int) bool {
+	return s.top+n < s.size
+}
+
+// HasItems returns true if stack has at least n items
+func (s *VMStack) HasItems(n int) bool {
+	return s.top >= n-1
+}
+
+// Size returns the current stack size
 func (s *VMStack) Size() int {
 	return s.top + 1
 }
@@ -371,6 +439,39 @@ func (c *BytecodeCompiler) compileStatement(stmt string) error {
 
 	case "VECTOR":
 		return c.compileVector(args)
+
+	case "SAY":
+		return c.compileSay(args)
+
+	case "LOCATE":
+		return c.compileLocate(args)
+
+	case "COLOR":
+		return c.compileColor(args)
+
+	case "KEY":
+		return c.compileKey(args)
+
+	case "DATA":
+		return c.compileData(args)
+
+	case "READ":
+		return c.compileRead(args)
+
+	case "DIM":
+		return c.compileDim(args)
+
+	case "TEXTGFX":
+		return c.compileTextGfx(args)
+
+	case "CLEARGRAPHICS":
+		return c.compileClearGraphics(args)
+
+	case "INVERSE":
+		return c.compileInverse(args)
+
+	case "RANDOMIZE":
+		return c.compileRandomize(args)
 
 	default:
 		// Unknown command - emit as function call
@@ -742,27 +843,27 @@ func (c *BytecodeCompiler) compileSound(args string) error {
 	if args == "" {
 		return fmt.Errorf("SOUND requires frequency and duration arguments")
 	}
-	
+
 	// Parse SOUND frequency, duration
 	parts := strings.Split(args, ",")
 	if len(parts) != 2 {
 		return fmt.Errorf("SOUND requires exactly 2 arguments: frequency, duration")
 	}
-	
+
 	// Compile frequency expression
 	freq := strings.TrimSpace(parts[0])
 	err := c.compileExpression(freq)
 	if err != nil {
 		return fmt.Errorf("error compiling frequency expression: %v", err)
 	}
-	
+
 	// Compile duration expression
 	duration := strings.TrimSpace(parts[1])
 	err = c.compileExpression(duration)
 	if err != nil {
 		return fmt.Errorf("error compiling duration expression: %v", err)
 	}
-	
+
 	// Emit SOUND instruction
 	c.Emit(OP_SOUND)
 	return nil
@@ -773,13 +874,13 @@ func (c *BytecodeCompiler) compileWait(args string) error {
 	if args == "" {
 		return fmt.Errorf("WAIT requires duration argument")
 	}
-	
+
 	// Compile duration expression
 	err := c.compileExpression(args)
 	if err != nil {
 		return fmt.Errorf("error compiling WAIT duration: %v", err)
 	}
-	
+
 	// Emit WAIT instruction
 	c.Emit(OP_WAIT)
 	return nil
@@ -790,34 +891,34 @@ func (c *BytecodeCompiler) compileNoise(args string) error {
 	if args == "" {
 		return fmt.Errorf("NOISE requires pitch, attack, and decay arguments")
 	}
-	
+
 	// Parse NOISE pitch, attack, decay
 	parts := strings.Split(args, ",")
 	if len(parts) != 3 {
 		return fmt.Errorf("NOISE requires exactly 3 arguments: pitch, attack, decay")
 	}
-	
+
 	// Compile pitch expression
 	pitch := strings.TrimSpace(parts[0])
 	err := c.compileExpression(pitch)
 	if err != nil {
 		return fmt.Errorf("error compiling pitch expression: %v", err)
 	}
-	
-	// Compile attack expression  
+
+	// Compile attack expression
 	attack := strings.TrimSpace(parts[1])
 	err = c.compileExpression(attack)
 	if err != nil {
 		return fmt.Errorf("error compiling attack expression: %v", err)
 	}
-	
+
 	// Compile decay expression
 	decay := strings.TrimSpace(parts[2])
 	err = c.compileExpression(decay)
 	if err != nil {
 		return fmt.Errorf("error compiling decay expression: %v", err)
 	}
-	
+
 	// Emit NOISE instruction
 	c.Emit(OP_NOISE)
 	return nil
@@ -828,7 +929,7 @@ func (c *BytecodeCompiler) compileBeep(args string) error {
 	if args != "" {
 		return fmt.Errorf("BEEP does not take arguments")
 	}
-	
+
 	// Emit BEEP instruction
 	c.Emit(OP_BEEP)
 	return nil
@@ -839,7 +940,7 @@ func (c *BytecodeCompiler) compileCls(args string) error {
 	if args != "" {
 		return fmt.Errorf("CLS does not take arguments")
 	}
-	
+
 	// Emit CLS instruction
 	c.Emit(OP_CLS)
 	return nil
@@ -851,13 +952,13 @@ func (c *BytecodeCompiler) compileMusic(args string) error {
 	if args == "" {
 		return fmt.Errorf("MUSIC requires a filename argument")
 	}
-	
+
 	// Compile the filename expression
 	err := c.compileExpression(args)
 	if err != nil {
 		return fmt.Errorf("error compiling MUSIC filename: %v", err)
 	}
-	
+
 	// Emit MUSIC instruction
 	c.Emit(OP_MUSIC)
 	return nil
@@ -869,13 +970,13 @@ func (c *BytecodeCompiler) compileSpeak(args string) error {
 	if args == "" {
 		return fmt.Errorf("SPEAK requires a text argument")
 	}
-	
+
 	// Compile the text expression
 	err := c.compileExpression(args)
 	if err != nil {
 		return fmt.Errorf("error compiling SPEAK text: %v", err)
 	}
-	
+
 	// Emit SPEAK instruction
 	c.Emit(OP_SPEAK)
 	return nil
@@ -886,27 +987,27 @@ func (c *BytecodeCompiler) compilePlot(args string) error {
 	if args == "" {
 		return fmt.Errorf("PLOT requires x and y coordinates")
 	}
-	
+
 	// Parse PLOT x, y
 	parts := strings.Split(args, ",")
 	if len(parts) != 2 {
 		return fmt.Errorf("PLOT requires exactly 2 arguments: x, y")
 	}
-	
+
 	// Compile x coordinate
 	x := strings.TrimSpace(parts[0])
 	err := c.compileExpression(x)
 	if err != nil {
 		return fmt.Errorf("error compiling x coordinate: %v", err)
 	}
-	
+
 	// Compile y coordinate
 	y := strings.TrimSpace(parts[1])
 	err = c.compileExpression(y)
 	if err != nil {
 		return fmt.Errorf("error compiling y coordinate: %v", err)
 	}
-	
+
 	// Emit PLOT instruction
 	c.Emit(OP_PLOT)
 	return nil
@@ -917,13 +1018,13 @@ func (c *BytecodeCompiler) compileLineCommand(args string) error {
 	if args == "" {
 		return fmt.Errorf("LINE requires coordinates")
 	}
-	
+
 	// Parse LINE x1, y1, x2, y2
 	parts := strings.Split(args, ",")
 	if len(parts) != 4 {
 		return fmt.Errorf("LINE requires exactly 4 arguments: x1, y1, x2, y2")
 	}
-	
+
 	// Compile all coordinates
 	for i, part := range parts {
 		coord := strings.TrimSpace(part)
@@ -932,7 +1033,7 @@ func (c *BytecodeCompiler) compileLineCommand(args string) error {
 			return fmt.Errorf("error compiling coordinate %d: %v", i+1, err)
 		}
 	}
-	
+
 	// Emit LINE instruction
 	c.Emit(OP_LINE)
 	return nil
@@ -943,13 +1044,13 @@ func (c *BytecodeCompiler) compileRect(args string) error {
 	if args == "" {
 		return fmt.Errorf("RECT requires coordinates and dimensions")
 	}
-	
+
 	// Parse RECT x, y, width, height
 	parts := strings.Split(args, ",")
 	if len(parts) != 4 {
 		return fmt.Errorf("RECT requires exactly 4 arguments: x, y, width, height")
 	}
-	
+
 	// Compile all parameters
 	for i, part := range parts {
 		param := strings.TrimSpace(part)
@@ -958,7 +1059,7 @@ func (c *BytecodeCompiler) compileRect(args string) error {
 			return fmt.Errorf("error compiling parameter %d: %v", i+1, err)
 		}
 	}
-	
+
 	// Emit RECT instruction
 	c.Emit(OP_RECT)
 	return nil
@@ -969,13 +1070,13 @@ func (c *BytecodeCompiler) compileCircle(args string) error {
 	if args == "" {
 		return fmt.Errorf("CIRCLE requires coordinates and radius")
 	}
-	
+
 	// Parse CIRCLE x, y, radius
 	parts := strings.Split(args, ",")
 	if len(parts) != 3 {
 		return fmt.Errorf("CIRCLE requires exactly 3 arguments: x, y, radius")
 	}
-	
+
 	// Compile all parameters
 	for i, part := range parts {
 		param := strings.TrimSpace(part)
@@ -984,7 +1085,7 @@ func (c *BytecodeCompiler) compileCircle(args string) error {
 			return fmt.Errorf("error compiling parameter %d: %v", i+1, err)
 		}
 	}
-	
+
 	// Emit CIRCLE instruction
 	c.Emit(OP_CIRCLE)
 	return nil
@@ -995,7 +1096,7 @@ func (c *BytecodeCompiler) compileSprite(args string) error {
 	if args == "" {
 		return fmt.Errorf("SPRITE requires arguments")
 	}
-	
+
 	// For SPRITE, we need to handle variable argument count
 	// Just compile the entire argument string as a single expression for now
 	// The VM will handle the complex parsing
@@ -1003,7 +1104,7 @@ func (c *BytecodeCompiler) compileSprite(args string) error {
 	if err != nil {
 		return fmt.Errorf("error compiling SPRITE arguments: %v", err)
 	}
-	
+
 	// Emit SPRITE instruction
 	c.Emit(OP_SPRITE)
 	return nil
@@ -1014,7 +1115,7 @@ func (c *BytecodeCompiler) compileVector(args string) error {
 	if args == "" {
 		return fmt.Errorf("VECTOR requires arguments")
 	}
-	
+
 	// For VECTOR, we need to handle variable argument count
 	// Just compile the entire argument string as a single expression for now
 	// The VM will handle the complex parsing
@@ -1022,9 +1123,195 @@ func (c *BytecodeCompiler) compileVector(args string) error {
 	if err != nil {
 		return fmt.Errorf("error compiling VECTOR arguments: %v", err)
 	}
-	
+
 	// Emit VECTOR instruction
 	c.Emit(OP_VECTOR)
+	return nil
+}
+
+// compileSay compiles SAY statements
+func (c *BytecodeCompiler) compileSay(args string) error {
+	// SAY is an alias for SPEAK
+	return c.compileSpeak(args)
+}
+
+// compileLocate compiles LOCATE statements
+func (c *BytecodeCompiler) compileLocate(args string) error {
+	if args == "" {
+		return fmt.Errorf("LOCATE requires x and y coordinates")
+	}
+
+	// Parse LOCATE x, y
+	parts := strings.Split(args, ",")
+	if len(parts) != 2 {
+		return fmt.Errorf("LOCATE requires exactly 2 arguments: x, y")
+	}
+
+	// Compile x coordinate
+	x := strings.TrimSpace(parts[0])
+	err := c.compileExpression(x)
+	if err != nil {
+		return fmt.Errorf("error compiling x coordinate: %v", err)
+	}
+
+	// Compile y coordinate
+	y := strings.TrimSpace(parts[1])
+	err = c.compileExpression(y)
+	if err != nil {
+		return fmt.Errorf("error compiling y coordinate: %v", err)
+	}
+
+	// Emit LOCATE instruction
+	c.Emit(OP_LOCATE)
+	return nil
+}
+
+// compileColor compiles COLOR statements
+func (c *BytecodeCompiler) compileColor(args string) error {
+	if args == "" {
+		return fmt.Errorf("COLOR requires color argument")
+	}
+
+	// Compile color expression
+	err := c.compileExpression(args)
+	if err != nil {
+		return fmt.Errorf("error compiling COLOR argument: %v", err)
+	}
+
+	// Emit COLOR instruction
+	c.Emit(OP_COLOR)
+	return nil
+}
+
+// compileKey compiles KEY statements
+func (c *BytecodeCompiler) compileKey(args string) error {
+	if args == "" {
+		return fmt.Errorf("KEY requires arguments")
+	}
+
+	// For KEY, compile the entire argument string
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling KEY arguments: %v", err)
+	}
+
+	// Emit KEY instruction
+	c.Emit(OP_KEY)
+	return nil
+}
+
+// compileData compiles DATA statements
+func (c *BytecodeCompiler) compileData(args string) error {
+	if args == "" {
+		return fmt.Errorf("DATA requires data values")
+	}
+
+	// For DATA, compile the entire argument string as a string literal
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling DATA arguments: %v", err)
+	}
+
+	// Emit DATA instruction
+	c.Emit(OP_DATA)
+	return nil
+}
+
+// compileRead compiles READ statements
+func (c *BytecodeCompiler) compileRead(args string) error {
+	if args == "" {
+		return fmt.Errorf("READ requires variable arguments")
+	}
+
+	// For READ, compile the entire argument string as a string literal
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling READ arguments: %v", err)
+	}
+
+	// Emit READ instruction
+	c.Emit(OP_READ)
+	return nil
+}
+
+// compileDim compiles DIM statements
+func (c *BytecodeCompiler) compileDim(args string) error {
+	if args == "" {
+		return fmt.Errorf("DIM requires array declaration")
+	}
+
+	// For DIM, compile the entire argument string as a string literal
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling DIM arguments: %v", err)
+	}
+
+	// Emit DIM instruction
+	c.Emit(OP_DIM)
+	return nil
+}
+
+// compileTextGfx compiles TEXTGFX statements
+func (c *BytecodeCompiler) compileTextGfx(args string) error {
+	if args == "" {
+		return fmt.Errorf("TEXTGFX requires arguments")
+	}
+
+	// For TEXTGFX, compile the entire argument string as a string literal
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling TEXTGFX arguments: %v", err)
+	}
+
+	// Emit TEXTGFX instruction
+	c.Emit(OP_TEXTGFX)
+	return nil
+}
+
+// compileClearGraphics compiles CLEARGRAPHICS statements
+func (c *BytecodeCompiler) compileClearGraphics(args string) error {
+	if args != "" {
+		return fmt.Errorf("CLEARGRAPHICS does not take arguments")
+	}
+
+	// Emit CLEARGRAPHICS instruction
+	c.Emit(OP_CLEARGRAPHICS)
+	return nil
+}
+
+// compileInverse compiles INVERSE statements
+func (c *BytecodeCompiler) compileInverse(args string) error {
+	if args == "" {
+		return fmt.Errorf("INVERSE requires on/off argument")
+	}
+
+	// Compile inverse argument
+	err := c.compileExpression(args)
+	if err != nil {
+		return fmt.Errorf("error compiling INVERSE argument: %v", err)
+	}
+
+	// Emit INVERSE instruction
+	c.Emit(OP_INVERSE)
+	return nil
+}
+
+// compileRandomize compiles RANDOMIZE statements
+func (c *BytecodeCompiler) compileRandomize(args string) error {
+	if args == "" {
+		// RANDOMIZE without argument - use current time
+		c.Emit(OP_RANDOMIZE)
+		return nil
+	}
+
+	// Compile seed argument
+	err := c.compileExpression(args)
+	if err != nil {
+		return fmt.Errorf("error compiling RANDOMIZE seed: %v", err)
+	}
+
+	// Emit RANDOMIZE instruction
+	c.Emit(OP_RANDOMIZE)
 	return nil
 }
 
@@ -1032,18 +1319,7 @@ func (c *BytecodeCompiler) compileVector(args string) error {
 func (c *BytecodeCompiler) compileFunction(command, args string) error {
 	// Check if this is a supported TinyBASIC extension command
 	extendedCommands := map[string]bool{
-		"SAY":    true,
-		"LOCATE": true,
-		"COLOR":  true,
-		"KEY":    true,
-		"DATA":   true,
-		"READ":   true,
-		"DIM":    true,
 		"CALL":   true,
-		"TEXTGFX": true,
-		"CLEARGRAPHICS": true,
-		"INVERSE": true,
-		"RANDOMIZE": true,
 		"LOAD":   true,
 		"SAVE":   true,
 		"OPEN":   true,
@@ -1181,7 +1457,7 @@ func (op OpCode) String() string {
 		"JUMP", "JUMP_IF", "JUMP_UNLESS", "CALL", "RETURN",
 		"FOR_INIT", "FOR_CHECK", "FOR_NEXT",
 		"PRINT", "PRINT_NL", "INPUT",
-		"HALT", "NOP", "DEBUG",
+		"HALT", "NOP", "SOUND", "WAIT", "NOISE", "BEEP", "CLS", "MUSIC", "SPEAK", "PLOT", "LINE", "RECT", "CIRCLE", "SPRITE", "VECTOR", "SAY", "LOCATE", "COLOR", "KEY", "DATA", "READ", "DIM", "TEXTGFX", "CLEARGRAPHICS", "INVERSE", "RANDOMIZE", "DEBUG",
 		"CALL_FUNC", "STR_CONCAT", "STR_LEN", "STR_MID",
 	}
 

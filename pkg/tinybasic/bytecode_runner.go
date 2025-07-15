@@ -46,18 +46,33 @@ func (b *TinyBASIC) runBytecodeProgram() {
 	b.mu.Lock()
 	if b.compiledProgram == nil {
 		b.mu.Unlock()
+		tinyBasicDebugLog("[BYTECODE-RUNNER] No compiled program available")
 		b.sendMessageWrapped(shared.MessageTypeText, "BYTECODE COMPILATION ERROR")
 		return
 	}
 
+	tinyBasicDebugLog("[BYTECODE-RUNNER] Loading compiled program with %d instructions", len(b.compiledProgram.Instructions))
+
+	// Debug: Print first 10 instructions to see what was compiled
+	tinyBasicDebugLog("[BYTECODE-RUNNER] First 10 instructions:")
+	for i := 0; i < 10 && i < len(b.compiledProgram.Instructions); i++ {
+		inst := b.compiledProgram.Instructions[i]
+		tinyBasicDebugLog("[BYTECODE-RUNNER] %d: OpCode=%d (%s)", i, int(inst.OpCode), inst.String())
+	}
+
+	b.bytecodeVM.LoadProgram(b.compiledProgram)
+
 	// Copy variables from interpreter to VM
+	varCount := 0
 	for varName, value := range b.variables {
 		b.bytecodeVM.variables[varName] = value
+		varCount++
 	}
+	tinyBasicDebugLog("[BYTECODE-RUNNER] Copied %d variables to VM", varCount)
 	b.mu.Unlock()
 
 	// Execute the bytecode program
-	tinyBasicDebugLog("Starting bytecode execution")
+	tinyBasicDebugLog("[BYTECODE-RUNNER] Starting bytecode execution")
 	err := b.bytecodeVM.Run(b.ctx)
 
 	// Copy variables back from VM to interpreter
@@ -89,15 +104,15 @@ func (b *TinyBASIC) runBytecodeWithFallback() {
 
 	if canUseBytecode {
 		tinyBasicDebugLog("Running program with bytecode")
-		
+
 		// Try bytecode execution
 		b.runBytecodeProgram()
-		
+
 		// Check if bytecode execution completed successfully
 		b.mu.Lock()
 		vmWasRunning := b.bytecodeVM.IsRunning()
 		b.mu.Unlock()
-		
+
 		if !vmWasRunning {
 			// Bytecode execution completed (successfully or with error)
 			return
@@ -122,10 +137,10 @@ const (
 
 // BenchmarkResult contains performance measurement results
 type BenchmarkResult struct {
-	Mode            string
-	ExecutionTime   time.Duration
+	Mode             string
+	ExecutionTime    time.Duration
 	InstructionCount int64
-	Error           error
+	Error            error
 }
 
 // BenchmarkExecution runs performance comparison between interpreted and bytecode execution
@@ -155,22 +170,22 @@ func (b *TinyBASIC) benchmarkInterpreted(iterations int) BenchmarkResult {
 
 	start := time.Now()
 	var lastErr error
-	
+
 	for i := 0; i < iterations; i++ {
 		// Reset state for each iteration
 		b.ResetExecutionState()
-		
+
 		// Run program synchronously for benchmarking
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err := b.runProgramSynchronous(ctx)
 		cancel()
-		
+
 		if err != nil {
 			lastErr = err
 			break
 		}
 	}
-	
+
 	duration := time.Since(start)
 
 	// Restore original bytecode setting
@@ -190,7 +205,7 @@ func (b *TinyBASIC) benchmarkBytecode(iterations int) BenchmarkResult {
 	b.mu.Lock()
 	// Ensure bytecode is enabled
 	b.useBytecode = true
-	
+
 	// Compile program once
 	compileErr := b.compileProgramIfNeeded()
 	if compileErr != nil {
@@ -204,29 +219,29 @@ func (b *TinyBASIC) benchmarkBytecode(iterations int) BenchmarkResult {
 
 	start := time.Now()
 	var lastErr error
-	
+
 	for i := 0; i < iterations; i++ {
 		// Reset VM state for each iteration
 		b.bytecodeVM.Reset()
-		
+
 		// Copy variables to VM
 		b.mu.Lock()
 		for varName, value := range b.variables {
 			b.bytecodeVM.variables[varName] = value
 		}
 		b.mu.Unlock()
-		
+
 		// Run bytecode synchronously for benchmarking
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		err := b.bytecodeVM.Run(ctx)
 		cancel()
-		
+
 		if err != nil {
 			lastErr = err
 			break
 		}
 	}
-	
+
 	duration := time.Since(start)
 
 	return BenchmarkResult{
@@ -243,13 +258,13 @@ func (b *TinyBASIC) runProgramSynchronous(ctx context.Context) error {
 		b.mu.Unlock()
 		return fmt.Errorf("no program loaded")
 	}
-	
+
 	b.rebuildProgramLines()
 	if len(b.programLines) == 0 {
 		b.mu.Unlock()
 		return fmt.Errorf("no program lines")
 	}
-	
+
 	b.rebuildData()
 	b.currentLine = b.programLines[0]
 	b.running = true
@@ -268,7 +283,7 @@ func (b *TinyBASIC) runProgramSynchronous(ctx context.Context) error {
 			b.mu.Unlock()
 			break
 		}
-		
+
 		currentLine := b.currentLine
 		code, ok := b.program[currentLine]
 		b.mu.Unlock()
@@ -287,8 +302,8 @@ func (b *TinyBASIC) runProgramSynchronous(ctx context.Context) error {
 		}
 
 		b.mu.Lock()
-		_ = b.currentLine  // originalLine was unused
-		
+		_ = b.currentLine // originalLine was unused
+
 		if b.currentLine != currentLine {
 			// Command changed current line (GOTO, etc.)
 			// Keep the new line
@@ -316,11 +331,11 @@ func (b *TinyBASIC) GetExecutionStats() map[string]interface{} {
 	defer b.mu.Unlock()
 
 	stats := map[string]interface{}{
-		"current_line":     b.currentLine,
-		"running":          b.running,
-		"use_bytecode":     b.useBytecode,
-		"program_lines":    len(b.programLines),
-		"variable_count":   len(b.variables),
+		"current_line":   b.currentLine,
+		"running":        b.running,
+		"use_bytecode":   b.useBytecode,
+		"program_lines":  len(b.programLines),
+		"variable_count": len(b.variables),
 	}
 
 	if b.bytecodeVM != nil {

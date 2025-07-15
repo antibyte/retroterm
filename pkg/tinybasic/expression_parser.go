@@ -38,10 +38,10 @@ const (
 
 // ExprToken represents a lexical token for expression parsing
 type ExprToken struct {
-	Type    TokenType
-	Value   string
-	NumVal  float64
-	StrVal  string
+	Type   TokenType
+	Value  string
+	NumVal float64
+	StrVal string
 }
 
 // ExpressionLexer tokenizes BASIC expressions
@@ -87,7 +87,7 @@ func (l *ExpressionLexer) skipWhitespace() {
 func (l *ExpressionLexer) readString() string {
 	startPos := l.pos
 	l.readChar() // Skip opening quote
-	
+
 	for l.char != '"' && l.char != 0 {
 		if l.char == '"' && l.peekChar() == '"' {
 			// Handle escaped quotes ""
@@ -97,15 +97,15 @@ func (l *ExpressionLexer) readString() string {
 			l.readChar()
 		}
 	}
-	
+
 	if l.char == '"' {
-		result := l.input[startPos:l.pos-1]
+		result := l.input[startPos : l.pos-1]
 		l.readChar() // Skip closing quote
 		// Handle escaped quotes in result
 		result = strings.ReplaceAll(result, `""`, `"`)
 		return result
 	}
-	
+
 	// Unterminated string
 	return l.input[startPos:]
 }
@@ -113,11 +113,11 @@ func (l *ExpressionLexer) readString() string {
 // readNumber reads a numeric literal
 func (l *ExpressionLexer) readNumber() (string, float64) {
 	startPos := l.pos - 1
-	
+
 	for unicode.IsDigit(rune(l.char)) {
 		l.readChar()
 	}
-	
+
 	// Handle decimal point
 	if l.char == '.' && unicode.IsDigit(rune(l.peekChar())) {
 		l.readChar() // Skip dot
@@ -125,8 +125,8 @@ func (l *ExpressionLexer) readNumber() (string, float64) {
 			l.readChar()
 		}
 	}
-	
-	numStr := l.input[startPos:l.pos-1]
+
+	numStr := l.input[startPos : l.pos-1]
 	numVal, _ := strconv.ParseFloat(numStr, 64)
 	return numStr, numVal
 }
@@ -134,18 +134,18 @@ func (l *ExpressionLexer) readNumber() (string, float64) {
 // readIdentifier reads an identifier or keyword
 func (l *ExpressionLexer) readIdentifier() string {
 	startPos := l.pos - 1
-	
+
 	for unicode.IsLetter(rune(l.char)) || unicode.IsDigit(rune(l.char)) || l.char == '$' || l.char == '_' {
 		l.readChar()
 	}
-	
-	return l.input[startPos:l.pos-1]
+
+	return l.input[startPos : l.pos-1]
 }
 
 // NextToken returns the next token from the input
 func (l *ExpressionLexer) NextToken() ExprToken {
 	l.skipWhitespace()
-	
+
 	switch l.char {
 	case 0:
 		return ExprToken{Type: TOKEN_EOF}
@@ -209,7 +209,7 @@ func (l *ExpressionLexer) NextToken() ExprToken {
 		} else if unicode.IsLetter(rune(l.char)) {
 			ident := l.readIdentifier()
 			identUpper := strings.ToUpper(ident)
-			
+
 			// Check for keywords
 			switch identUpper {
 			case "MOD":
@@ -224,7 +224,7 @@ func (l *ExpressionLexer) NextToken() ExprToken {
 				return ExprToken{Type: TOKEN_IDENTIFIER, Value: ident}
 			}
 		}
-		
+
 		// Unknown character - skip it
 		l.readChar()
 		return l.NextToken()
@@ -236,7 +236,7 @@ type ExpressionParser struct {
 	lexer   *ExpressionLexer
 	current ExprToken
 	peek    ExprToken
-	
+
 	// Compiler reference for emitting instructions
 	compiler *BytecodeCompiler
 }
@@ -247,11 +247,11 @@ func NewExpressionParser(input string, compiler *BytecodeCompiler) *ExpressionPa
 		lexer:    NewExpressionLexer(input),
 		compiler: compiler,
 	}
-	
+
 	// Read two tokens to initialize current and peek
 	p.nextToken()
 	p.nextToken()
-	
+
 	return p
 }
 
@@ -291,7 +291,7 @@ func (p *ExpressionParser) parseOrExpression() error {
 	if err != nil {
 		return err
 	}
-	
+
 	for p.currentTokenIs(TOKEN_OR) {
 		p.nextToken()
 		err := p.parseAndExpression()
@@ -300,7 +300,7 @@ func (p *ExpressionParser) parseOrExpression() error {
 		}
 		p.compiler.Emit(OP_OR)
 	}
-	
+
 	return nil
 }
 
@@ -310,7 +310,7 @@ func (p *ExpressionParser) parseAndExpression() error {
 	if err != nil {
 		return err
 	}
-	
+
 	for p.currentTokenIs(TOKEN_AND) {
 		p.nextToken()
 		err := p.parseEqualityExpression()
@@ -319,7 +319,7 @@ func (p *ExpressionParser) parseAndExpression() error {
 		}
 		p.compiler.Emit(OP_AND)
 	}
-	
+
 	return nil
 }
 
@@ -329,7 +329,7 @@ func (p *ExpressionParser) parseEqualityExpression() error {
 	if err != nil {
 		return err
 	}
-	
+
 	for {
 		switch p.current.Type {
 		case TOKEN_EQ:
@@ -358,7 +358,7 @@ func (p *ExpressionParser) parseRelationalExpression() error {
 	if err != nil {
 		return err
 	}
-	
+
 	for {
 		switch p.current.Type {
 		case TOKEN_LT:
@@ -401,7 +401,7 @@ func (p *ExpressionParser) parseAdditiveExpression() error {
 	if err != nil {
 		return err
 	}
-	
+
 	for {
 		switch p.current.Type {
 		case TOKEN_PLUS:
@@ -430,7 +430,7 @@ func (p *ExpressionParser) parseMultiplicativeExpression() error {
 	if err != nil {
 		return err
 	}
-	
+
 	for {
 		switch p.current.Type {
 		case TOKEN_MULTIPLY:
@@ -466,7 +466,7 @@ func (p *ExpressionParser) parsePowerExpression() error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Right-associative
 	if p.currentTokenIs(TOKEN_POWER) {
 		p.nextToken()
@@ -476,7 +476,7 @@ func (p *ExpressionParser) parsePowerExpression() error {
 		}
 		p.compiler.Emit(OP_POW)
 	}
-	
+
 	return nil
 }
 
@@ -514,25 +514,25 @@ func (p *ExpressionParser) parsePrimaryExpression() error {
 		p.compiler.EmitConstant(p.current.NumVal)
 		p.nextToken()
 		return nil
-		
+
 	case TOKEN_STRING:
 		p.compiler.EmitConstant(p.current.StrVal)
 		p.nextToken()
 		return nil
-		
+
 	case TOKEN_IDENTIFIER:
 		varName := strings.ToUpper(p.current.Value)
-		
+
 		// Check if it's a function call
 		if p.peekTokenIs(TOKEN_LPAREN) {
 			return p.parseFunctionCall(varName)
 		}
-		
+
 		// Simple variable
 		p.compiler.Emit(OP_LOAD_VAR, varName)
 		p.nextToken()
 		return nil
-		
+
 	case TOKEN_LPAREN:
 		p.nextToken() // Skip (
 		err := p.ParseExpression()
@@ -543,7 +543,7 @@ func (p *ExpressionParser) parsePrimaryExpression() error {
 			return fmt.Errorf("expected ')'")
 		}
 		return nil
-		
+
 	default:
 		return fmt.Errorf("unexpected token: %v", p.current.Value)
 	}
@@ -553,9 +553,9 @@ func (p *ExpressionParser) parsePrimaryExpression() error {
 func (p *ExpressionParser) parseFunctionCall(funcName string) error {
 	p.nextToken() // Skip function name
 	p.nextToken() // Skip (
-	
+
 	argCount := 0
-	
+
 	// Parse arguments
 	if !p.currentTokenIs(TOKEN_RPAREN) {
 		err := p.ParseExpression()
@@ -563,7 +563,7 @@ func (p *ExpressionParser) parseFunctionCall(funcName string) error {
 			return err
 		}
 		argCount++
-		
+
 		for p.currentTokenIs(TOKEN_COMMA) {
 			p.nextToken() // Skip comma
 			err := p.ParseExpression()
@@ -573,14 +573,14 @@ func (p *ExpressionParser) parseFunctionCall(funcName string) error {
 			argCount++
 		}
 	}
-	
+
 	if !p.expectPeek(TOKEN_RPAREN) {
 		return fmt.Errorf("expected ')' after function arguments")
 	}
-	
+
 	// Emit function call instruction
 	p.compiler.Emit(OP_CALL_FUNC, funcName, argCount)
-	
+
 	return nil
 }
 
@@ -589,7 +589,97 @@ func (c *BytecodeCompiler) CompileExpression(expr string) error {
 	if strings.TrimSpace(expr) == "" {
 		return fmt.Errorf("empty expression")
 	}
-	
+
+	// Try constant folding optimization first
+	if folded, ok := c.tryConstantFold(expr); ok {
+		if folded.IsNumeric {
+			c.EmitConstant(folded.NumValue)
+		} else {
+			c.EmitConstant(folded.StrValue)
+		}
+		return nil
+	}
+
 	parser := NewExpressionParser(expr, c)
 	return parser.ParseExpression()
+}
+
+// tryConstantFold attempts to evaluate constant expressions at compile time
+func (c *BytecodeCompiler) tryConstantFold(expr string) (BASICValue, bool) {
+	expr = strings.TrimSpace(expr)
+
+	// Only attempt folding for simple expressions without variables or function calls
+	if strings.ContainsAny(expr, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz$") {
+		// Contains letters - likely variables or functions
+		return BASICValue{}, false
+	}
+
+	// Try to evaluate as numeric expression
+	if result, err := c.evaluateConstantExpression(expr); err == nil {
+		return BASICValue{NumValue: result, IsNumeric: true}, true
+	}
+
+	// Try to evaluate as string literal
+	if strings.HasPrefix(expr, "\"") && strings.HasSuffix(expr, "\"") {
+		content := expr[1 : len(expr)-1]
+		return BASICValue{StrValue: content, IsNumeric: false}, true
+	}
+
+	return BASICValue{}, false
+}
+
+// evaluateConstantExpression evaluates a constant numeric expression
+func (c *BytecodeCompiler) evaluateConstantExpression(expr string) (float64, error) {
+	expr = strings.TrimSpace(expr)
+
+	// Handle simple numeric literals
+	if val, err := strconv.ParseFloat(expr, 64); err == nil {
+		return val, nil
+	}
+
+	// Handle simple arithmetic expressions
+	// This is a simplified evaluator for basic constant folding
+
+	// Addition
+	if parts := strings.Split(expr, "+"); len(parts) == 2 {
+		left, err1 := c.evaluateConstantExpression(strings.TrimSpace(parts[0]))
+		right, err2 := c.evaluateConstantExpression(strings.TrimSpace(parts[1]))
+		if err1 == nil && err2 == nil {
+			return left + right, nil
+		}
+	}
+
+	// Subtraction
+	if parts := strings.Split(expr, "-"); len(parts) == 2 && parts[0] != "" {
+		left, err1 := c.evaluateConstantExpression(strings.TrimSpace(parts[0]))
+		right, err2 := c.evaluateConstantExpression(strings.TrimSpace(parts[1]))
+		if err1 == nil && err2 == nil {
+			return left - right, nil
+		}
+	}
+
+	// Multiplication
+	if parts := strings.Split(expr, "*"); len(parts) == 2 {
+		left, err1 := c.evaluateConstantExpression(strings.TrimSpace(parts[0]))
+		right, err2 := c.evaluateConstantExpression(strings.TrimSpace(parts[1]))
+		if err1 == nil && err2 == nil {
+			return left * right, nil
+		}
+	}
+
+	// Division
+	if parts := strings.Split(expr, "/"); len(parts) == 2 {
+		left, err1 := c.evaluateConstantExpression(strings.TrimSpace(parts[0]))
+		right, err2 := c.evaluateConstantExpression(strings.TrimSpace(parts[1]))
+		if err1 == nil && err2 == nil && right != 0 {
+			return left / right, nil
+		}
+	}
+
+	// Parentheses
+	if strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
+		return c.evaluateConstantExpression(expr[1 : len(expr)-1])
+	}
+
+	return 0, fmt.Errorf("not a constant expression")
 }
