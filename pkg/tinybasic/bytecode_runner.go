@@ -325,7 +325,7 @@ func (b *TinyBASIC) runProgramSynchronous(ctx context.Context) error {
 	return nil
 }
 
-// GetExecutionStats returns current execution statistics
+// GetExecutionStats returns current execution statistics with enhanced performance data
 func (b *TinyBASIC) GetExecutionStats() map[string]interface{} {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -341,6 +341,12 @@ func (b *TinyBASIC) GetExecutionStats() map[string]interface{} {
 	if b.bytecodeVM != nil {
 		stats["vm_running"] = b.bytecodeVM.IsRunning()
 		stats["vm_pc"] = b.bytecodeVM.GetPC()
+		
+		// Add comprehensive performance statistics
+		performanceStats := b.bytecodeVM.GetPerformanceStats()
+		for k, v := range performanceStats {
+			stats["vm_"+k] = v
+		}
 	}
 
 	if b.compiledProgram != nil {

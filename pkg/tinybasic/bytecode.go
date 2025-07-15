@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Bytecode instruction opcodes for TinyBASIC
@@ -119,26 +120,104 @@ type VMStack struct {
 	size int
 }
 
-// String intern table for optimization
-var stringInternTable = make(map[string]string)
-var stringInternMutex sync.RWMutex
+// StringInterningSystem provides thread-safe string interning with memory management
+type StringInterningSystem struct {
+	table     map[string]string
+	mutex     sync.RWMutex
+	maxSize   int
+	hits      int64
+	misses    int64
+	evictions int64
+}
 
-// InternString interns a string to reduce allocations
+// Global string interning system
+var globalStringInterning = &StringInterningSystem{
+	table:   make(map[string]string),
+	maxSize: 10000, // Limit to 10k strings
+}
+
+// InternString interns a string to reduce allocations with memory management
 func InternString(s string) string {
-	stringInternMutex.RLock()
-	if interned, exists := stringInternTable[s]; exists {
-		stringInternMutex.RUnlock()
-		return interned
-	}
-	stringInternMutex.RUnlock()
+	return globalStringInterning.InternString(s)
+}
 
-	stringInternMutex.Lock()
-	defer stringInternMutex.Unlock()
-	if interned, exists := stringInternTable[s]; exists {
+// InternString interns a string with the system
+func (sis *StringInterningSystem) InternString(s string) string {
+	// Skip interning very long strings to prevent memory bloat
+	if len(s) > 1000 {
+		return s
+	}
+	
+	sis.mutex.RLock()
+	if interned, exists := sis.table[s]; exists {
+		sis.mutex.RUnlock()
+		atomic.AddInt64(&sis.hits, 1)
 		return interned
 	}
-	stringInternTable[s] = s
+	sis.mutex.RUnlock()
+
+	sis.mutex.Lock()
+	defer sis.mutex.Unlock()
+	
+	// Double-check after acquiring write lock
+	if interned, exists := sis.table[s]; exists {
+		atomic.AddInt64(&sis.hits, 1)
+		return interned
+	}
+	
+	// Check if we need to evict entries
+	if len(sis.table) >= sis.maxSize {
+		sis.evictOldEntries()
+	}
+	
+	sis.table[s] = s
+	atomic.AddInt64(&sis.misses, 1)
 	return s
+}
+
+// evictOldEntries removes some entries to make room (simple LRU approximation)
+func (sis *StringInterningSystem) evictOldEntries() {
+	// Simple eviction: remove 10% of entries
+	removeCount := len(sis.table) / 10
+	if removeCount < 1 {
+		removeCount = 1
+	}
+	
+	// Remove entries (not truly LRU, but good enough for this use case)
+	count := 0
+	for key := range sis.table {
+		if count >= removeCount {
+			break
+		}
+		delete(sis.table, key)
+		count++
+	}
+	
+	atomic.AddInt64(&sis.evictions, int64(count))
+}
+
+// GetStats returns interning statistics
+func (sis *StringInterningSystem) GetStats() map[string]interface{} {
+	sis.mutex.RLock()
+	defer sis.mutex.RUnlock()
+	
+	hits := atomic.LoadInt64(&sis.hits)
+	misses := atomic.LoadInt64(&sis.misses)
+	total := hits + misses
+	
+	hitRate := float64(0)
+	if total > 0 {
+		hitRate = float64(hits) / float64(total)
+	}
+	
+	return map[string]interface{}{
+		"hits":       hits,
+		"misses":     misses,
+		"evictions":  atomic.LoadInt64(&sis.evictions),
+		"entries":    len(sis.table),
+		"hit_rate":   hitRate,
+		"max_size":   sis.maxSize,
+	}
 }
 
 // GetPooledBASICValue gets a BASICValue from the pool (use existing pool from tinybasic.go)
@@ -151,12 +230,51 @@ func PutPooledBASICValue(v *BASICValue) {
 	returnBASICValue(v)
 }
 
-// NewVMStack creates a new VM stack
+// VMStackPool provides pooled VM stacks for reuse
+type VMStackPool struct {
+	pool    sync.Pool
+	maxSize int
+}
+
+// Global VM stack pool
+var globalVMStackPool = &VMStackPool{
+	maxSize: 1000,
+}
+
+func init() {
+	globalVMStackPool.pool = sync.Pool{
+		New: func() interface{} {
+			return &VMStack{
+				data: make([]BASICValue, globalVMStackPool.maxSize),
+				top:  -1,
+				size: globalVMStackPool.maxSize,
+			}
+		},
+	}
+}
+
+// NewVMStack creates a new VM stack with pooling
 func NewVMStack(size int) *VMStack {
+	if size <= globalVMStackPool.maxSize {
+		// Use pooled stack
+		stack := globalVMStackPool.pool.Get().(*VMStack)
+		stack.Clear()
+		return stack
+	}
+	
+	// Create new stack for large sizes
 	return &VMStack{
 		data: make([]BASICValue, size),
 		top:  -1,
 		size: size,
+	}
+}
+
+// ReturnVMStack returns a stack to the pool for reuse
+func ReturnVMStack(stack *VMStack) {
+	if stack.size <= globalVMStackPool.maxSize {
+		stack.Clear()
+		globalVMStackPool.pool.Put(stack)
 	}
 }
 

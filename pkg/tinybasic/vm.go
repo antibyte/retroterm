@@ -7,10 +7,122 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/antibyte/retroterm/pkg/shared"
 )
+
+// InstructionCache provides caching for frequently used instruction patterns
+type InstructionCache struct {
+	cache map[string]*CachedInstruction
+	mutex sync.RWMutex
+	hits  int64
+	misses int64
+}
+
+// CachedInstruction represents a cached instruction with metadata
+type CachedInstruction struct {
+	handler   InstructionHandler
+	opcode    OpCode
+	hitCount  int64
+	lastUsed  time.Time
+}
+
+// NewInstructionCache creates a new instruction cache
+func NewInstructionCache() *InstructionCache {
+	return &InstructionCache{
+		cache: make(map[string]*CachedInstruction),
+	}
+}
+
+// Get retrieves a cached instruction handler
+func (ic *InstructionCache) Get(key string) (InstructionHandler, bool) {
+	ic.mutex.RLock()
+	cached, exists := ic.cache[key]
+	ic.mutex.RUnlock()
+	
+	if exists {
+		atomic.AddInt64(&ic.hits, 1)
+		atomic.AddInt64(&cached.hitCount, 1)
+		cached.lastUsed = time.Now()
+		return cached.handler, true
+	}
+	
+	atomic.AddInt64(&ic.misses, 1)
+	return nil, false
+}
+
+// Put stores an instruction handler in the cache
+func (ic *InstructionCache) Put(key string, handler InstructionHandler, opcode OpCode) {
+	ic.mutex.Lock()
+	defer ic.mutex.Unlock()
+	
+	ic.cache[key] = &CachedInstruction{
+		handler:   handler,
+		opcode:    opcode,
+		hitCount:  0,
+		lastUsed:  time.Now(),
+	}
+	
+	// Limit cache size to prevent memory bloat
+	if len(ic.cache) > 1000 {
+		ic.evictOldest()
+	}
+}
+
+// evictOldest removes the least recently used entries
+func (ic *InstructionCache) evictOldest() {
+	var oldestKey string
+	var oldestTime time.Time
+	
+	for key, cached := range ic.cache {
+		if oldestKey == "" || cached.lastUsed.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = cached.lastUsed
+		}
+	}
+	
+	if oldestKey != "" {
+		delete(ic.cache, oldestKey)
+	}
+}
+
+// GetStats returns cache statistics
+func (ic *InstructionCache) GetStats() map[string]interface{} {
+	ic.mutex.RLock()
+	defer ic.mutex.RUnlock()
+	
+	return map[string]interface{}{
+		"hits":     atomic.LoadInt64(&ic.hits),
+		"misses":   atomic.LoadInt64(&ic.misses),
+		"entries":  len(ic.cache),
+		"hit_rate": float64(atomic.LoadInt64(&ic.hits)) / float64(atomic.LoadInt64(&ic.hits) + atomic.LoadInt64(&ic.misses)),
+	}
+}
+
+// ErrorContext provides detailed error information with line numbers and context
+type ErrorContext struct {
+	LineNumber      int    // Original BASIC line number
+	Instruction     string // Instruction that caused the error
+	PC              int    // Program counter at error
+	StackSize       int    // Stack size at error
+	OriginalCode    string // Original BASIC code line
+	VariableContext map[string]BASICValue // Variable state at error
+}
+
+// VMError represents a runtime error with context
+type VMError struct {
+	Message string
+	Context ErrorContext
+}
+
+// Error implements the error interface
+func (e *VMError) Error() string {
+	return fmt.Sprintf("Runtime error at line %d: %s\nInstruction: %s\nOriginal code: %s\nPC: %d, Stack: %d items",
+		e.Context.LineNumber, e.Message, e.Context.Instruction, e.Context.OriginalCode, e.Context.PC, e.Context.StackSize)
+}
 
 // BytecodeVM represents the virtual machine for executing bytecode
 type BytecodeVM struct {
@@ -23,6 +135,7 @@ type BytecodeVM struct {
 	variables map[string]BASICValue // Variable storage
 	running   bool                  // Execution state
 	ctx       context.Context       // Execution context
+	cache     *InstructionCache     // Instruction cache for optimization
 }
 
 // VMForLoop represents a FOR loop in the virtual machine
@@ -45,6 +158,7 @@ func NewBytecodeVM(tb *TinyBASIC) *BytecodeVM {
 		forLoops:  make([]VMForLoop, 0, 50), // 50 deep FOR loops
 		variables: make(map[string]BASICValue),
 		running:   false,
+		cache:     NewInstructionCache(),
 	}
 }
 
@@ -55,13 +169,25 @@ func (vm *BytecodeVM) LoadProgram(program *BytecodeProgram) {
 	vm.running = false
 }
 
-// Reset resets the VM state
+// Reset resets the VM state with memory optimization
 func (vm *BytecodeVM) Reset() {
 	vm.pc = 0
-	vm.stack.Clear()
+	
+	// Return current stack to pool and get a fresh one
+	if vm.stack != nil {
+		ReturnVMStack(vm.stack)
+	}
+	vm.stack = NewVMStack(1000)
+	
+	// Reuse slices instead of creating new ones
 	vm.callStack = vm.callStack[:0]
 	vm.forLoops = vm.forLoops[:0]
-	vm.variables = make(map[string]BASICValue)
+	
+	// Clear variables map instead of creating new one
+	for k := range vm.variables {
+		delete(vm.variables, k)
+	}
+	
 	vm.running = false
 }
 
@@ -186,7 +312,41 @@ var instructionHandlers = [...]InstructionHandler{
 	OP_STR_MID:       (*BytecodeVM).handleStrMid,
 }
 
-// executeInstruction executes a single bytecode instruction using jump table
+// createErrorContext creates detailed error context for debugging
+func (vm *BytecodeVM) createErrorContext(inst *Instruction, message string) *VMError {
+	context := ErrorContext{
+		LineNumber:   inst.LineNum,
+		Instruction:  inst.String(),
+		PC:           vm.pc,
+		StackSize:    vm.stack.Size(),
+		OriginalCode: "",
+		VariableContext: make(map[string]BASICValue),
+	}
+	
+	// Get original code if available
+	if vm.program != nil && vm.program.OriginalCode != nil {
+		if code, exists := vm.program.OriginalCode[inst.LineNum]; exists {
+			context.OriginalCode = code
+		}
+	}
+	
+	// Copy relevant variables for context (limit to prevent memory issues)
+	varCount := 0
+	for name, value := range vm.variables {
+		if varCount >= 10 { // Limit to 10 most recent variables
+			break
+		}
+		context.VariableContext[name] = value
+		varCount++
+	}
+	
+	return &VMError{
+		Message: message,
+		Context: context,
+	}
+}
+
+// executeInstruction executes a single bytecode instruction using jump table with caching
 func (vm *BytecodeVM) executeInstruction() error {
 	if vm.pc >= len(vm.program.Instructions) {
 		vm.running = false
@@ -195,14 +355,43 @@ func (vm *BytecodeVM) executeInstruction() error {
 
 	inst := vm.program.Instructions[vm.pc]
 
+	// Try to get cached handler first for frequently used instructions
+	cacheKey := fmt.Sprintf("%d_%v", int(inst.OpCode), inst.Operand1)
+	if handler, found := vm.cache.Get(cacheKey); found {
+		if err := handler(vm, &inst); err != nil {
+			// Wrap error with context if not already a VMError
+			if _, ok := err.(*VMError); !ok {
+				return vm.createErrorContext(&inst, err.Error())
+			}
+			return err
+		}
+		return nil
+	}
+
 	// Use jump table for O(1) dispatch
 	if int(inst.OpCode) >= len(instructionHandlers) || instructionHandlers[inst.OpCode] == nil {
 		tinyBasicDebugLog("[BYTECODE-VM] Unknown opcode: %d (array length: %d) - falling back to legacy", inst.OpCode, len(instructionHandlers))
 		// Fall back to legacy implementation for unknown opcodes
-		return vm.executeInstructionLegacy()
+		if err := vm.executeInstructionLegacy(); err != nil {
+			return vm.createErrorContext(&inst, err.Error())
+		}
+		return nil
 	}
 
-	return instructionHandlers[inst.OpCode](vm, &inst)
+	handler := instructionHandlers[inst.OpCode]
+	
+	// Cache the handler for future use
+	vm.cache.Put(cacheKey, handler, inst.OpCode)
+	
+	if err := handler(vm, &inst); err != nil {
+		// Wrap error with context if not already a VMError
+		if _, ok := err.(*VMError); !ok {
+			return vm.createErrorContext(&inst, err.Error())
+		}
+		return err
+	}
+	
+	return nil
 }
 
 // Optimized instruction handlers using inline operations and fast stack access
@@ -690,24 +879,294 @@ func (vm *BytecodeVM) handlePushStr(inst *Instruction) error {
 	return nil
 }
 
-// Simple handler stubs that delegate to legacy implementation
-func (vm *BytecodeVM) handleLoadVar(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
+// Native instruction handlers - optimized implementations
+func (vm *BytecodeVM) handleLoadVar(inst *Instruction) error {
+	varName := strings.ToUpper(inst.Operand1.(string))
+	if value, exists := vm.variables[varName]; exists {
+		// Validate that the stored type matches the expected type
+		isStringVar := strings.HasSuffix(varName, "$")
+		if isStringVar && value.IsNumeric {
+			// Convert numeric to string if accessing string variable
+			convertedValue := BASICValue{
+				StrValue:  InternString(vm.toString(value)),
+				IsNumeric: false,
+			}
+			vm.variables[varName] = convertedValue // Update stored value
+			vm.stack.FastPush(convertedValue)
+		} else if !isStringVar && !value.IsNumeric {
+			// Convert string to numeric if accessing numeric variable
+			if numVal, err := strconv.ParseFloat(value.StrValue, 64); err == nil {
+				convertedValue := BASICValue{
+					NumValue:  numVal,
+					IsNumeric: true,
+				}
+				vm.variables[varName] = convertedValue // Update stored value
+				vm.stack.FastPush(convertedValue)
+			} else {
+				// Invalid conversion - default to 0
+				convertedValue := BASICValue{
+					NumValue:  0,
+					IsNumeric: true,
+				}
+				vm.variables[varName] = convertedValue
+				vm.stack.FastPush(convertedValue)
+			}
+		} else {
+			vm.stack.FastPush(value)
+		}
+	} else {
+		// Uninitialized variables default to 0 or empty string based on type
+		if strings.HasSuffix(varName, "$") {
+			defaultValue := BASICValue{
+				StrValue:  "",
+				IsNumeric: false,
+			}
+			vm.variables[varName] = defaultValue
+			vm.stack.FastPush(defaultValue)
+		} else {
+			defaultValue := BASICValue{
+				NumValue:  0,
+				IsNumeric: true,
+			}
+			vm.variables[varName] = defaultValue
+			vm.stack.FastPush(defaultValue)
+		}
+	}
+	vm.pc++
+	return nil
+}
+
 func (vm *BytecodeVM) handleStoreVar(inst *Instruction) error {
-	return vm.handleLegacyInstruction(inst)
+	varName := strings.ToUpper(inst.Operand1.(string))
+	value := vm.stack.FastPop()
+
+	// Validate and convert type if necessary
+	isStringVar := strings.HasSuffix(varName, "$")
+	if isStringVar && value.IsNumeric {
+		// Convert numeric to string for string variable
+		value = BASICValue{
+			StrValue:  InternString(vm.toString(value)),
+			IsNumeric: false,
+		}
+	} else if !isStringVar && !value.IsNumeric {
+		// Convert string to numeric for numeric variable
+		if numVal, err := strconv.ParseFloat(value.StrValue, 64); err == nil {
+			value = BASICValue{
+				NumValue:  numVal,
+				IsNumeric: true,
+			}
+		} else {
+			// Invalid conversion - store as 0
+			value = BASICValue{
+				NumValue:  0,
+				IsNumeric: true,
+			}
+		}
+	}
+
+	vm.variables[varName] = value
+	vm.pc++
+	return nil
 }
-func (vm *BytecodeVM) handlePop(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleJump(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleJumpIf(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
+
+func (vm *BytecodeVM) handlePop(inst *Instruction) error {
+	vm.stack.FastPop()
+	vm.pc++
+	return nil
+}
+
+func (vm *BytecodeVM) handleJump(inst *Instruction) error {
+	lineNum := inst.Operand1.(int)
+	if addr, exists := vm.program.Labels[lineNum]; exists {
+		vm.pc = addr
+	} else {
+		return fmt.Errorf("undefined line number %d", lineNum)
+	}
+	return nil
+}
+
+func (vm *BytecodeVM) handleJumpIf(inst *Instruction) error {
+	condition := vm.stack.FastPop()
+
+	if vm.isTrue(condition) {
+		lineNum := inst.Operand1.(int)
+		if addr, exists := vm.program.Labels[lineNum]; exists {
+			vm.pc = addr
+		} else {
+			return fmt.Errorf("undefined line number %d", lineNum)
+		}
+	} else {
+		vm.pc++
+	}
+	return nil
+}
+
 func (vm *BytecodeVM) handleJumpUnless(inst *Instruction) error {
-	return vm.handleLegacyInstruction(inst)
+	condition := vm.stack.FastPop()
+
+	if !vm.isTrue(condition) {
+		addr := inst.Operand1.(int)
+		vm.pc = addr
+	} else {
+		vm.pc++
+	}
+	return nil
 }
-func (vm *BytecodeVM) handleCall(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleReturn(inst *Instruction) error  { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleForInit(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
+
+func (vm *BytecodeVM) handleCall(inst *Instruction) error {
+	lineNum := inst.Operand1.(int)
+	// Push return address
+	vm.callStack = append(vm.callStack, vm.pc+1)
+	// Jump to subroutine
+	if addr, exists := vm.program.Labels[lineNum]; exists {
+		vm.pc = addr
+	} else {
+		return fmt.Errorf("undefined line number %d", lineNum)
+	}
+	return nil
+}
+
+func (vm *BytecodeVM) handleReturn(inst *Instruction) error {
+	if len(vm.callStack) == 0 {
+		return fmt.Errorf("RETURN without GOSUB")
+	}
+	// Pop return address
+	returnAddr := vm.callStack[len(vm.callStack)-1]
+	vm.callStack = vm.callStack[:len(vm.callStack)-1]
+	vm.pc = returnAddr
+	return nil
+}
+
+func (vm *BytecodeVM) handleForInit(inst *Instruction) error {
+	varName := strings.ToUpper(inst.Operand1.(string))
+
+	// Pop step, end values from stack (in reverse order)
+	step := vm.stack.FastPop()
+	end := vm.stack.FastPop()
+
+	// Validate step value
+	if step.NumValue == 0 {
+		return fmt.Errorf("FOR loop with zero step value at line %d", inst.LineNum)
+	}
+
+	// Current value is already in the variable
+	current := vm.variables[varName]
+
+	// Ensure current, end, and step are numeric
+	if !current.IsNumeric || !end.IsNumeric || !step.IsNumeric {
+		return fmt.Errorf("FOR loop requires numeric values at line %d", inst.LineNum)
+	}
+
+	// Check if loop should execute at all
+	shouldExecute := false
+	if step.NumValue > 0 {
+		shouldExecute = current.NumValue <= end.NumValue
+	} else if step.NumValue < 0 {
+		shouldExecute = current.NumValue >= end.NumValue
+	}
+
+	if shouldExecute {
+		// Create FOR loop entry and continue with loop body
+		forLoop := VMForLoop{
+			Variable: varName,
+			Current:  current,
+			End:      end,
+			Step:     step,
+			StartPC:  vm.pc + 1, // Next instruction after FOR_INIT
+			NextPC:   vm.pc + 1,
+		}
+		vm.forLoops = append(vm.forLoops, forLoop)
+	}
+	// Always continue to next instruction (loop body or past loop)
+	vm.pc++
+	return nil
+}
+
 func (vm *BytecodeVM) handleForCheck(inst *Instruction) error {
-	return vm.handleLegacyInstruction(inst)
+	if len(vm.forLoops) == 0 {
+		return fmt.Errorf("FOR_CHECK without FOR loop")
+	}
+
+	// Check current FOR loop condition
+	loop := &vm.forLoops[len(vm.forLoops)-1]
+	current := vm.variables[loop.Variable]
+
+	// Determine if loop should continue
+	shouldContinue := false
+	if loop.Step.NumValue > 0 {
+		shouldContinue = current.NumValue <= loop.End.NumValue
+	} else {
+		shouldContinue = current.NumValue >= loop.End.NumValue
+	}
+
+	if shouldContinue {
+		vm.pc++ // Continue with loop body
+	} else {
+		// Exit loop - find matching NEXT
+		vm.forLoops = vm.forLoops[:len(vm.forLoops)-1]
+		// For now, just continue - NEXT will handle the jump
+		vm.pc++
+	}
+	return nil
 }
-func (vm *BytecodeVM) handleForNext(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
+
+func (vm *BytecodeVM) handleForNext(inst *Instruction) error {
+	varName := ""
+	if inst.Operand1 != nil {
+		varName = strings.ToUpper(inst.Operand1.(string))
+	}
+
+	if len(vm.forLoops) == 0 {
+		// No active FOR loops - this is an error in BASIC
+		return fmt.Errorf("NEXT without FOR at line %d", inst.LineNum)
+	}
+
+	// Find matching FOR loop
+	loopIndex := len(vm.forLoops) - 1
+	if varName != "" {
+		found := false
+		for i := len(vm.forLoops) - 1; i >= 0; i-- {
+			if vm.forLoops[i].Variable == varName {
+				loopIndex = i
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("NEXT %s without matching FOR at line %d", varName, inst.LineNum)
+		}
+	}
+
+	loop := &vm.forLoops[loopIndex]
+
+	// Increment loop variable
+	current := vm.variables[loop.Variable]
+	if !current.IsNumeric {
+		return fmt.Errorf("FOR loop variable %s must be numeric at line %d", loop.Variable, inst.LineNum)
+	}
+
+	current.NumValue += loop.Step.NumValue
+	vm.variables[loop.Variable] = current
+	loop.Current = current
+
+	// Check if loop should continue with proper step direction handling
+	shouldContinue := false
+	if loop.Step.NumValue > 0 {
+		shouldContinue = current.NumValue <= loop.End.NumValue
+	} else if loop.Step.NumValue < 0 {
+		shouldContinue = current.NumValue >= loop.End.NumValue
+	}
+
+	if shouldContinue {
+		// Jump back to loop start
+		vm.pc = loop.StartPC
+	} else {
+		// Exit loop - remove all nested loops up to and including this one
+		vm.forLoops = vm.forLoops[:loopIndex]
+		vm.pc++
+	}
+	return nil
+}
 func (vm *BytecodeVM) handlePrint(inst *Instruction) error {
 	tinyBasicDebugLog("[BYTECODE-VM] PRINT: Getting value from stack")
 
@@ -2367,6 +2826,28 @@ func (vm *BytecodeVM) GetPC() int {
 // IsRunning returns whether VM is currently running
 func (vm *BytecodeVM) IsRunning() bool {
 	return vm.running
+}
+
+// GetPerformanceStats returns comprehensive performance statistics
+func (vm *BytecodeVM) GetPerformanceStats() map[string]interface{} {
+	stats := map[string]interface{}{
+		"pc":              vm.pc,
+		"running":         vm.running,
+		"stack_size":      vm.stack.Size(),
+		"call_stack_size": len(vm.callStack),
+		"for_loops_count": len(vm.forLoops),
+		"variable_count":  len(vm.variables),
+	}
+
+	// Add cache statistics
+	if vm.cache != nil {
+		stats["instruction_cache"] = vm.cache.GetStats()
+	}
+
+	// Add string interning statistics
+	stats["string_interning"] = globalStringInterning.GetStats()
+
+	return stats
 }
 
 // Resume resumes VM execution from a specific program counter

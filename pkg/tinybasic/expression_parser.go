@@ -2,6 +2,7 @@ package tinybasic
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"unicode"
@@ -628,58 +629,407 @@ func (c *BytecodeCompiler) tryConstantFold(expr string) (BASICValue, bool) {
 	return BASICValue{}, false
 }
 
-// evaluateConstantExpression evaluates a constant numeric expression
+// ConstantEvaluator provides enhanced constant folding capabilities
+type ConstantEvaluator struct {
+	compiler *BytecodeCompiler
+}
+
+// NewConstantEvaluator creates a new constant evaluator
+func NewConstantEvaluator(compiler *BytecodeCompiler) *ConstantEvaluator {
+	return &ConstantEvaluator{compiler: compiler}
+}
+
+// evaluateConstantExpression evaluates a constant numeric expression with enhanced folding
 func (c *BytecodeCompiler) evaluateConstantExpression(expr string) (float64, error) {
+	evaluator := NewConstantEvaluator(c)
+	return evaluator.EvaluateExpression(expr)
+}
+
+// EvaluateExpression evaluates a constant expression using recursive descent parsing
+func (ce *ConstantEvaluator) EvaluateExpression(expr string) (float64, error) {
 	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return 0, fmt.Errorf("empty expression")
+	}
 
-	// Handle simple numeric literals
-	if val, err := strconv.ParseFloat(expr, 64); err == nil {
+	lexer := NewExpressionLexer(expr)
+	parser := &ConstantExpressionParser{
+		lexer: lexer,
+		current: lexer.NextToken(),
+	}
+	parser.peek = lexer.NextToken()
+	
+	return parser.parseExpression()
+}
+
+// ConstantExpressionParser handles constant expression parsing for folding
+type ConstantExpressionParser struct {
+	lexer   *ExpressionLexer
+	current ExprToken
+	peek    ExprToken
+}
+
+// nextToken advances to the next token
+func (p *ConstantExpressionParser) nextToken() {
+	p.current = p.peek
+	p.peek = p.lexer.NextToken()
+}
+
+// parseExpression parses OR expressions (lowest precedence)
+func (p *ConstantExpressionParser) parseExpression() (float64, error) {
+	left, err := p.parseAndExpression()
+	if err != nil {
+		return 0, err
+	}
+
+	for p.current.Type == TOKEN_OR {
+		p.nextToken()
+		right, err := p.parseAndExpression()
+		if err != nil {
+			return 0, err
+		}
+		// Logical OR: return -1 if either is true, 0 if both false
+		if left != 0 || right != 0 {
+			left = -1
+		} else {
+			left = 0
+		}
+	}
+
+	return left, nil
+}
+
+// parseAndExpression parses AND expressions
+func (p *ConstantExpressionParser) parseAndExpression() (float64, error) {
+	left, err := p.parseEqualityExpression()
+	if err != nil {
+		return 0, err
+	}
+
+	for p.current.Type == TOKEN_AND {
+		p.nextToken()
+		right, err := p.parseEqualityExpression()
+		if err != nil {
+			return 0, err
+		}
+		// Logical AND: return -1 if both are true, 0 otherwise
+		if left != 0 && right != 0 {
+			left = -1
+		} else {
+			left = 0
+		}
+	}
+
+	return left, nil
+}
+
+// parseEqualityExpression parses equality expressions
+func (p *ConstantExpressionParser) parseEqualityExpression() (float64, error) {
+	left, err := p.parseRelationalExpression()
+	if err != nil {
+		return 0, err
+	}
+
+	for {
+		switch p.current.Type {
+		case TOKEN_EQ:
+			p.nextToken()
+			right, err := p.parseRelationalExpression()
+			if err != nil {
+				return 0, err
+			}
+			if left == right {
+				left = -1
+			} else {
+				left = 0
+			}
+		case TOKEN_NE:
+			p.nextToken()
+			right, err := p.parseRelationalExpression()
+			if err != nil {
+				return 0, err
+			}
+			if left != right {
+				left = -1
+			} else {
+				left = 0
+			}
+		default:
+			return left, nil
+		}
+	}
+}
+
+// parseRelationalExpression parses relational expressions
+func (p *ConstantExpressionParser) parseRelationalExpression() (float64, error) {
+	left, err := p.parseAdditiveExpression()
+	if err != nil {
+		return 0, err
+	}
+
+	for {
+		switch p.current.Type {
+		case TOKEN_LT:
+			p.nextToken()
+			right, err := p.parseAdditiveExpression()
+			if err != nil {
+				return 0, err
+			}
+			if left < right {
+				left = -1
+			} else {
+				left = 0
+			}
+		case TOKEN_LE:
+			p.nextToken()
+			right, err := p.parseAdditiveExpression()
+			if err != nil {
+				return 0, err
+			}
+			if left <= right {
+				left = -1
+			} else {
+				left = 0
+			}
+		case TOKEN_GT:
+			p.nextToken()
+			right, err := p.parseAdditiveExpression()
+			if err != nil {
+				return 0, err
+			}
+			if left > right {
+				left = -1
+			} else {
+				left = 0
+			}
+		case TOKEN_GE:
+			p.nextToken()
+			right, err := p.parseAdditiveExpression()
+			if err != nil {
+				return 0, err
+			}
+			if left >= right {
+				left = -1
+			} else {
+				left = 0
+			}
+		default:
+			return left, nil
+		}
+	}
+}
+
+// parseAdditiveExpression parses additive expressions
+func (p *ConstantExpressionParser) parseAdditiveExpression() (float64, error) {
+	left, err := p.parseMultiplicativeExpression()
+	if err != nil {
+		return 0, err
+	}
+
+	for {
+		switch p.current.Type {
+		case TOKEN_PLUS:
+			p.nextToken()
+			right, err := p.parseMultiplicativeExpression()
+			if err != nil {
+				return 0, err
+			}
+			left = left + right
+		case TOKEN_MINUS:
+			p.nextToken()
+			right, err := p.parseMultiplicativeExpression()
+			if err != nil {
+				return 0, err
+			}
+			left = left - right
+		default:
+			return left, nil
+		}
+	}
+}
+
+// parseMultiplicativeExpression parses multiplicative expressions
+func (p *ConstantExpressionParser) parseMultiplicativeExpression() (float64, error) {
+	left, err := p.parsePowerExpression()
+	if err != nil {
+		return 0, err
+	}
+
+	for {
+		switch p.current.Type {
+		case TOKEN_MULTIPLY:
+			p.nextToken()
+			right, err := p.parsePowerExpression()
+			if err != nil {
+				return 0, err
+			}
+			left = left * right
+		case TOKEN_DIVIDE:
+			p.nextToken()
+			right, err := p.parsePowerExpression()
+			if err != nil {
+				return 0, err
+			}
+			if right == 0 {
+				return 0, fmt.Errorf("division by zero in constant expression")
+			}
+			left = left / right
+		case TOKEN_MOD:
+			p.nextToken()
+			right, err := p.parsePowerExpression()
+			if err != nil {
+				return 0, err
+			}
+			if right == 0 {
+				return 0, fmt.Errorf("division by zero in modulo operation")
+			}
+			left = math.Mod(left, right)
+		default:
+			return left, nil
+		}
+	}
+}
+
+// parsePowerExpression parses power expressions (right-associative)
+func (p *ConstantExpressionParser) parsePowerExpression() (float64, error) {
+	left, err := p.parseUnaryExpression()
+	if err != nil {
+		return 0, err
+	}
+
+	if p.current.Type == TOKEN_POWER {
+		p.nextToken()
+		right, err := p.parsePowerExpression() // Right-associative
+		if err != nil {
+			return 0, err
+		}
+		return math.Pow(left, right), nil
+	}
+
+	return left, nil
+}
+
+// parseUnaryExpression parses unary expressions
+func (p *ConstantExpressionParser) parseUnaryExpression() (float64, error) {
+	switch p.current.Type {
+	case TOKEN_MINUS:
+		p.nextToken()
+		val, err := p.parseUnaryExpression()
+		if err != nil {
+			return 0, err
+		}
+		return -val, nil
+	case TOKEN_PLUS:
+		p.nextToken()
+		return p.parseUnaryExpression()
+	case TOKEN_NOT:
+		p.nextToken()
+		val, err := p.parseUnaryExpression()
+		if err != nil {
+			return 0, err
+		}
+		if val == 0 {
+			return -1, nil
+		}
+		return 0, nil
+	default:
+		return p.parsePrimaryExpression()
+	}
+}
+
+// parsePrimaryExpression parses primary expressions
+func (p *ConstantExpressionParser) parsePrimaryExpression() (float64, error) {
+	switch p.current.Type {
+	case TOKEN_NUMBER:
+		val := p.current.NumVal
+		p.nextToken()
 		return val, nil
-	}
-
-	// Handle simple arithmetic expressions
-	// This is a simplified evaluator for basic constant folding
-
-	// Addition
-	if parts := strings.Split(expr, "+"); len(parts) == 2 {
-		left, err1 := c.evaluateConstantExpression(strings.TrimSpace(parts[0]))
-		right, err2 := c.evaluateConstantExpression(strings.TrimSpace(parts[1]))
-		if err1 == nil && err2 == nil {
-			return left + right, nil
+	case TOKEN_LPAREN:
+		p.nextToken() // Skip (
+		val, err := p.parseExpression()
+		if err != nil {
+			return 0, err
 		}
-	}
-
-	// Subtraction
-	if parts := strings.Split(expr, "-"); len(parts) == 2 && parts[0] != "" {
-		left, err1 := c.evaluateConstantExpression(strings.TrimSpace(parts[0]))
-		right, err2 := c.evaluateConstantExpression(strings.TrimSpace(parts[1]))
-		if err1 == nil && err2 == nil {
-			return left - right, nil
+		if p.current.Type != TOKEN_RPAREN {
+			return 0, fmt.Errorf("expected ')' in constant expression")
 		}
-	}
-
-	// Multiplication
-	if parts := strings.Split(expr, "*"); len(parts) == 2 {
-		left, err1 := c.evaluateConstantExpression(strings.TrimSpace(parts[0]))
-		right, err2 := c.evaluateConstantExpression(strings.TrimSpace(parts[1]))
-		if err1 == nil && err2 == nil {
-			return left * right, nil
+		p.nextToken() // Skip )
+		return val, nil
+	case TOKEN_IDENTIFIER:
+		// Check for mathematical constants
+		switch strings.ToUpper(p.current.Value) {
+		case "PI":
+			p.nextToken()
+			return math.Pi, nil
+		case "E":
+			p.nextToken()
+			return math.E, nil
+		default:
+			// Check for simple mathematical functions
+			if p.peek.Type == TOKEN_LPAREN {
+				return p.parseConstantFunction()
+			}
+			return 0, fmt.Errorf("variable '%s' not allowed in constant expression", p.current.Value)
 		}
+	default:
+		return 0, fmt.Errorf("unexpected token in constant expression: %s", p.current.Value)
+	}
+}
+
+// parseConstantFunction parses mathematical functions in constant expressions
+func (p *ConstantExpressionParser) parseConstantFunction() (float64, error) {
+	funcName := strings.ToUpper(p.current.Value)
+	p.nextToken() // Skip function name
+	p.nextToken() // Skip (
+
+	arg, err := p.parseExpression()
+	if err != nil {
+		return 0, err
 	}
 
-	// Division
-	if parts := strings.Split(expr, "/"); len(parts) == 2 {
-		left, err1 := c.evaluateConstantExpression(strings.TrimSpace(parts[0]))
-		right, err2 := c.evaluateConstantExpression(strings.TrimSpace(parts[1]))
-		if err1 == nil && err2 == nil && right != 0 {
-			return left / right, nil
+	if p.current.Type != TOKEN_RPAREN {
+		return 0, fmt.Errorf("expected ')' after function argument")
+	}
+	p.nextToken() // Skip )
+
+	switch funcName {
+	case "ABS":
+		if arg < 0 {
+			return -arg, nil
 		}
+		return arg, nil
+	case "INT":
+		return float64(int64(arg)), nil
+	case "SIN":
+		return math.Sin(arg), nil
+	case "COS":
+		return math.Cos(arg), nil
+	case "TAN":
+		return math.Tan(arg), nil
+	case "ASIN":
+		return math.Asin(arg), nil
+	case "ACOS":
+		return math.Acos(arg), nil
+	case "ATAN":
+		return math.Atan(arg), nil
+	case "LOG":
+		if arg <= 0 {
+			return 0, fmt.Errorf("logarithm of non-positive number")
+		}
+		return math.Log(arg), nil
+	case "LOG10":
+		if arg <= 0 {
+			return 0, fmt.Errorf("logarithm of non-positive number")
+		}
+		return math.Log10(arg), nil
+	case "EXP":
+		return math.Exp(arg), nil
+	case "SQR", "SQRT":
+		if arg < 0 {
+			return 0, fmt.Errorf("square root of negative number")
+		}
+		return math.Sqrt(arg), nil
+	default:
+		return 0, fmt.Errorf("function '%s' not supported in constant expressions", funcName)
 	}
-
-	// Parentheses
-	if strings.HasPrefix(expr, "(") && strings.HasSuffix(expr, ")") {
-		return c.evaluateConstantExpression(expr[1 : len(expr)-1])
-	}
-
-	return 0, fmt.Errorf("not a constant expression")
 }
