@@ -175,21 +175,42 @@ func (sis *StringInterningSystem) InternString(s string) string {
 	return s
 }
 
-// evictOldEntries removes some entries to make room (simple LRU approximation)
+// evictOldEntries removes some entries to make room (improved batch eviction)
 func (sis *StringInterningSystem) evictOldEntries() {
-	// Simple eviction: remove 10% of entries
-	removeCount := len(sis.table) / 10
-	if removeCount < 1 {
-		removeCount = 1
+	// Batch eviction: remove 20% of entries to reduce eviction frequency
+	removeCount := len(sis.table) / 5
+	if removeCount < 10 {
+		removeCount = 10 // Minimum batch size
 	}
 	
-	// Remove entries (not truly LRU, but good enough for this use case)
-	count := 0
+	// Collect entries to remove (prefer longer strings for eviction)
+	type entryInfo struct {
+		key    string
+		length int
+	}
+	
+	entries := make([]entryInfo, 0, len(sis.table))
 	for key := range sis.table {
+		entries = append(entries, entryInfo{key: key, length: len(key)})
+	}
+	
+	// Sort by length (descending) to evict longer strings first
+	// This keeps frequently used short strings in cache longer
+	for i := 0; i < len(entries)-1; i++ {
+		for j := i + 1; j < len(entries); j++ {
+			if entries[i].length < entries[j].length {
+				entries[i], entries[j] = entries[j], entries[i]
+			}
+		}
+	}
+	
+	// Remove the longest strings first
+	count := 0
+	for _, entry := range entries {
 		if count >= removeCount {
 			break
 		}
-		delete(sis.table, key)
+		delete(sis.table, entry.key)
 		count++
 	}
 	
@@ -288,9 +309,12 @@ func (s *VMStack) Push(value BASICValue) error {
 	return nil
 }
 
-// FastPush value onto stack without bounds checking (unsafe but fast)
+// FastPush value onto stack with minimal bounds checking (optimized but safe)
 func (s *VMStack) FastPush(value BASICValue) {
 	s.top++
+	if s.top >= s.size {
+		panic(fmt.Sprintf("stack overflow: attempted to push at index %d, stack size %d", s.top, s.size))
+	}
 	s.data[s.top] = value
 }
 
@@ -304,8 +328,11 @@ func (s *VMStack) Pop() (BASICValue, error) {
 	return value, nil
 }
 
-// FastPop value from stack without bounds checking (unsafe but fast)
+// FastPop value from stack with minimal bounds checking (optimized but safe)
 func (s *VMStack) FastPop() BASICValue {
+	if s.top < 0 {
+		panic(fmt.Sprintf("stack underflow: attempted to pop at index %d", s.top))
+	}
 	value := s.data[s.top]
 	s.top--
 	return value
@@ -332,6 +359,22 @@ func (s *VMStack) HasSpace(n int) bool {
 // HasItems returns true if stack has at least n items
 func (s *VMStack) HasItems(n int) bool {
 	return s.top >= n-1
+}
+
+// SafeFastPush pushes value if there's space, panics otherwise
+func (s *VMStack) SafeFastPush(value BASICValue) {
+	if !s.HasSpace(1) {
+		panic(fmt.Sprintf("stack overflow: no space for push, current size %d/%d", s.top+1, s.size))
+	}
+	s.FastPush(value)
+}
+
+// SafeFastPop pops value if items exist, panics otherwise
+func (s *VMStack) SafeFastPop() BASICValue {
+	if !s.HasItems(1) {
+		panic(fmt.Sprintf("stack underflow: no items to pop, current size %d", s.top+1))
+	}
+	return s.FastPop()
 }
 
 // Size returns the current stack size

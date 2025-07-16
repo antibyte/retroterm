@@ -14,9 +14,12 @@ import (
 	"github.com/antibyte/retroterm/pkg/shared"
 )
 
+// CacheKey represents a numeric cache key for fast lookup
+type CacheKey uint64
+
 // InstructionCache provides caching for frequently used instruction patterns
 type InstructionCache struct {
-	cache map[string]*CachedInstruction
+	cache map[CacheKey]*CachedInstruction
 	mutex sync.RWMutex
 	hits  int64
 	misses int64
@@ -27,18 +30,47 @@ type CachedInstruction struct {
 	handler   InstructionHandler
 	opcode    OpCode
 	hitCount  int64
-	lastUsed  time.Time
+	lastUsed  int64 // Use Unix timestamp for atomic operations
 }
 
 // NewInstructionCache creates a new instruction cache
 func NewInstructionCache() *InstructionCache {
 	return &InstructionCache{
-		cache: make(map[string]*CachedInstruction),
+		cache: make(map[CacheKey]*CachedInstruction),
 	}
 }
 
-// Get retrieves a cached instruction handler
-func (ic *InstructionCache) Get(key string) (InstructionHandler, bool) {
+// generateCacheKey creates a fast numeric cache key from opcode and operand
+func generateCacheKey(opcode OpCode, operand interface{}) CacheKey {
+	key := uint64(opcode) << 32
+	
+	switch v := operand.(type) {
+	case int:
+		key |= uint64(v) & 0xFFFFFFFF
+	case string:
+		// Simple hash for string operands
+		hash := uint64(0)
+		for _, char := range v {
+			hash = hash*31 + uint64(char)
+		}
+		key |= hash & 0xFFFFFFFF
+	case nil:
+		// No operand, just use opcode
+	default:
+		// For other types, use a simple hash
+		strVal := fmt.Sprintf("%v", v)
+		hash := uint64(0)
+		for _, char := range strVal {
+			hash = hash*31 + uint64(char)
+		}
+		key |= hash & 0xFFFFFFFF
+	}
+	
+	return CacheKey(key)
+}
+
+// Get retrieves a cached instruction handler (thread-safe)
+func (ic *InstructionCache) Get(key CacheKey) (InstructionHandler, bool) {
 	ic.mutex.RLock()
 	cached, exists := ic.cache[key]
 	ic.mutex.RUnlock()
@@ -46,7 +78,7 @@ func (ic *InstructionCache) Get(key string) (InstructionHandler, bool) {
 	if exists {
 		atomic.AddInt64(&ic.hits, 1)
 		atomic.AddInt64(&cached.hitCount, 1)
-		cached.lastUsed = time.Now()
+		atomic.StoreInt64(&cached.lastUsed, time.Now().Unix())
 		return cached.handler, true
 	}
 	
@@ -54,8 +86,8 @@ func (ic *InstructionCache) Get(key string) (InstructionHandler, bool) {
 	return nil, false
 }
 
-// Put stores an instruction handler in the cache
-func (ic *InstructionCache) Put(key string, handler InstructionHandler, opcode OpCode) {
+// Put stores an instruction handler in the cache (thread-safe)
+func (ic *InstructionCache) Put(key CacheKey, handler InstructionHandler, opcode OpCode) {
 	ic.mutex.Lock()
 	defer ic.mutex.Unlock()
 	
@@ -63,7 +95,7 @@ func (ic *InstructionCache) Put(key string, handler InstructionHandler, opcode O
 		handler:   handler,
 		opcode:    opcode,
 		hitCount:  0,
-		lastUsed:  time.Now(),
+		lastUsed:  time.Now().Unix(),
 	}
 	
 	// Limit cache size to prevent memory bloat
@@ -72,21 +104,37 @@ func (ic *InstructionCache) Put(key string, handler InstructionHandler, opcode O
 	}
 }
 
-// evictOldest removes the least recently used entries
+// evictOldest removes the least recently used entries (thread-safe)
 func (ic *InstructionCache) evictOldest() {
-	var oldestKey string
-	var oldestTime time.Time
+	var oldestKey CacheKey
+	var oldestTime int64 = math.MaxInt64
+	found := false
 	
 	for key, cached := range ic.cache {
-		if oldestKey == "" || cached.lastUsed.Before(oldestTime) {
+		lastUsed := atomic.LoadInt64(&cached.lastUsed)
+		if !found || lastUsed < oldestTime {
 			oldestKey = key
-			oldestTime = cached.lastUsed
+			oldestTime = lastUsed
+			found = true
 		}
 	}
 	
-	if oldestKey != "" {
+	if found {
 		delete(ic.cache, oldestKey)
 	}
+}
+
+// Clear clears the instruction cache (for cache invalidation)
+func (ic *InstructionCache) Clear() {
+	ic.mutex.Lock()
+	defer ic.mutex.Unlock()
+	
+	// Clear the cache map
+	ic.cache = make(map[CacheKey]*CachedInstruction)
+	
+	// Reset statistics
+	atomic.StoreInt64(&ic.hits, 0)
+	atomic.StoreInt64(&ic.misses, 0)
 }
 
 // GetStats returns cache statistics
@@ -94,11 +142,20 @@ func (ic *InstructionCache) GetStats() map[string]interface{} {
 	ic.mutex.RLock()
 	defer ic.mutex.RUnlock()
 	
+	hits := atomic.LoadInt64(&ic.hits)
+	misses := atomic.LoadInt64(&ic.misses)
+	total := hits + misses
+	
+	hitRate := float64(0)
+	if total > 0 {
+		hitRate = float64(hits) / float64(total)
+	}
+	
 	return map[string]interface{}{
-		"hits":     atomic.LoadInt64(&ic.hits),
-		"misses":   atomic.LoadInt64(&ic.misses),
+		"hits":     hits,
+		"misses":   misses,
 		"entries":  len(ic.cache),
-		"hit_rate": float64(atomic.LoadInt64(&ic.hits)) / float64(atomic.LoadInt64(&ic.hits) + atomic.LoadInt64(&ic.misses)),
+		"hit_rate": hitRate,
 	}
 }
 
@@ -138,14 +195,15 @@ type BytecodeVM struct {
 	cache     *InstructionCache     // Instruction cache for optimization
 }
 
-// VMForLoop represents a FOR loop in the virtual machine
+// VMForLoop represents a FOR loop in the virtual machine with optimization hints
 type VMForLoop struct {
-	Variable string     // Loop variable name
-	Current  BASICValue // Current value
-	End      BASICValue // End value
-	Step     BASICValue // Step value
-	StartPC  int        // Start instruction address
-	NextPC   int        // Address after FOR statement
+	Variable  string     // Loop variable name
+	Current   BASICValue // Current value
+	End       BASICValue // End value
+	Step      BASICValue // Step value
+	StartPC   int        // Start instruction address
+	NextPC    int        // Address after FOR statement
+	LoopCount int        // Estimated loop count for optimization (0 = unknown)
 }
 
 // NewBytecodeVM creates a new virtual machine instance
@@ -162,14 +220,19 @@ func NewBytecodeVM(tb *TinyBASIC) *BytecodeVM {
 	}
 }
 
-// LoadProgram loads a compiled bytecode program
+// LoadProgram loads a compiled bytecode program and invalidates cache
 func (vm *BytecodeVM) LoadProgram(program *BytecodeProgram) {
 	vm.program = program
 	vm.pc = 0
 	vm.running = false
+	
+	// Clear instruction cache when loading new program
+	if vm.cache != nil {
+		vm.cache.Clear()
+	}
 }
 
-// Reset resets the VM state with memory optimization
+// Reset resets the VM state with memory optimization and cache invalidation
 func (vm *BytecodeVM) Reset() {
 	vm.pc = 0
 	
@@ -186,6 +249,11 @@ func (vm *BytecodeVM) Reset() {
 	// Clear variables map instead of creating new one
 	for k := range vm.variables {
 		delete(vm.variables, k)
+	}
+	
+	// Clear instruction cache on reset
+	if vm.cache != nil {
+		vm.cache.Clear()
 	}
 	
 	vm.running = false
@@ -356,7 +424,7 @@ func (vm *BytecodeVM) executeInstruction() error {
 	inst := vm.program.Instructions[vm.pc]
 
 	// Try to get cached handler first for frequently used instructions
-	cacheKey := fmt.Sprintf("%d_%v", int(inst.OpCode), inst.Operand1)
+	cacheKey := generateCacheKey(inst.OpCode, inst.Operand1)
 	if handler, found := vm.cache.Get(cacheKey); found {
 		if err := handler(vm, &inst); err != nil {
 			// Wrap error with context if not already a VMError
@@ -396,271 +464,353 @@ func (vm *BytecodeVM) executeInstruction() error {
 
 // Optimized instruction handlers using inline operations and fast stack access
 
-// handleAdd handles addition with inline optimization
+// handleAdd handles addition with advanced optimizations
 func (vm *BytecodeVM) handleAdd(inst *Instruction) error {
+	// Check stack has enough items
+	if !vm.stack.HasItems(2) {
+		return fmt.Errorf("ADD: insufficient operands on stack")
+	}
+	
 	// Fast path for arithmetic operations
-	if vm.stack.HasItems(2) {
-		b := vm.stack.FastPop()
-		a := vm.stack.FastPop()
+	b := vm.stack.FastPop()
+	a := vm.stack.FastPop()
 
-		if a.IsNumeric && b.IsNumeric {
-			// Inline numeric addition
-			result := BASICValue{
+	var result BASICValue
+	if a.IsNumeric && b.IsNumeric {
+		// Special optimizations for common addition patterns
+		if a.NumValue == 0 {
+			// Adding 0: return b unchanged
+			result = b
+		} else if b.NumValue == 0 {
+			// Adding 0: return a unchanged
+			result = a
+		} else if a.NumValue == 1 {
+			// Adding 1: increment optimization
+			result = BASICValue{
+				NumValue:  b.NumValue + 1,
+				IsNumeric: true,
+			}
+		} else if b.NumValue == 1 {
+			// Adding 1: increment optimization
+			result = BASICValue{
+				NumValue:  a.NumValue + 1,
+				IsNumeric: true,
+			}
+		} else {
+			// General case: inline numeric addition
+			result = BASICValue{
 				NumValue:  a.NumValue + b.NumValue,
 				IsNumeric: true,
 			}
-			vm.stack.FastPush(result)
-			vm.pc++
-			return nil
-		} else {
-			// String concatenation
-			result := BASICValue{
-				StrValue:  InternString(vm.toString(a) + vm.toString(b)),
-				IsNumeric: false,
-			}
-			vm.stack.FastPush(result)
-			vm.pc++
-			return nil
+		}
+	} else {
+		// String concatenation for mixed types
+		result = BASICValue{
+			StrValue:  InternString(vm.toString(a) + vm.toString(b)),
+			IsNumeric: false,
 		}
 	}
-
-	// Fallback to safe operations
-	return vm.execBinaryOp(func(a, b BASICValue) (BASICValue, error) {
-		if a.IsNumeric && b.IsNumeric {
-			return newNumericBASICValue(a.NumValue + b.NumValue), nil
-		}
-		return newStringBASICValue(vm.toString(a) + vm.toString(b)), nil
-	})
+	
+	vm.stack.FastPush(result)
+	vm.pc++
+	return nil
 }
 
-// handleSub handles subtraction with inline optimization
+// handleSub handles subtraction with advanced optimizations
 func (vm *BytecodeVM) handleSub(inst *Instruction) error {
-	if vm.stack.HasItems(2) {
-		b := vm.stack.FastPop()
-		a := vm.stack.FastPop()
+	// Check stack has enough items
+	if !vm.stack.HasItems(2) {
+		return fmt.Errorf("SUB: insufficient operands on stack")
+	}
+	
+	b := vm.stack.FastPop()
+	a := vm.stack.FastPop()
 
-		if a.IsNumeric && b.IsNumeric {
-			result := BASICValue{
-				NumValue:  a.NumValue - b.NumValue,
-				IsNumeric: true,
-			}
-			vm.stack.FastPush(result)
-			vm.pc++
-			return nil
-		} else {
-			return fmt.Errorf("type mismatch in subtraction")
+	if !a.IsNumeric || !b.IsNumeric {
+		return fmt.Errorf("SUB: type mismatch, both operands must be numeric")
+	}
+	
+	// Special optimizations for common subtraction patterns
+	var result BASICValue
+	if b.NumValue == 0 {
+		// Subtracting 0: return a unchanged
+		result = a
+	} else if a.NumValue == b.NumValue {
+		// Self-subtraction: always 0
+		result = BASICValue{NumValue: 0, IsNumeric: true}
+	} else if b.NumValue == 1 {
+		// Subtracting 1: decrement optimization
+		result = BASICValue{
+			NumValue:  a.NumValue - 1,
+			IsNumeric: true,
+		}
+	} else {
+		// General case
+		result = BASICValue{
+			NumValue:  a.NumValue - b.NumValue,
+			IsNumeric: true,
 		}
 	}
-
-	return vm.execBinaryOp(func(a, b BASICValue) (BASICValue, error) {
-		if !a.IsNumeric || !b.IsNumeric {
-			return BASICValue{}, fmt.Errorf("type mismatch in subtraction")
-		}
-		return newNumericBASICValue(a.NumValue - b.NumValue), nil
-	})
+	
+	vm.stack.FastPush(result)
+	vm.pc++
+	return nil
 }
 
-// handleMul handles multiplication with inline optimization
+// handleMul handles multiplication with advanced optimizations
 func (vm *BytecodeVM) handleMul(inst *Instruction) error {
-	if vm.stack.HasItems(2) {
-		b := vm.stack.FastPop()
-		a := vm.stack.FastPop()
+	// Check stack has enough items
+	if !vm.stack.HasItems(2) {
+		return fmt.Errorf("MUL: insufficient operands on stack")
+	}
+	
+	b := vm.stack.FastPop()
+	a := vm.stack.FastPop()
 
-		if a.IsNumeric && b.IsNumeric {
-			result := BASICValue{
-				NumValue:  a.NumValue * b.NumValue,
-				IsNumeric: true,
-			}
-			vm.stack.FastPush(result)
-			vm.pc++
-			return nil
-		} else {
-			return fmt.Errorf("type mismatch in multiplication")
+	if !a.IsNumeric || !b.IsNumeric {
+		return fmt.Errorf("MUL: type mismatch, both operands must be numeric")
+	}
+	
+	// Special optimizations for common multiplication patterns
+	var result BASICValue
+	if a.NumValue == 0 || b.NumValue == 0 {
+		// Multiplying by 0: always 0
+		result = BASICValue{NumValue: 0, IsNumeric: true}
+	} else if a.NumValue == 1 {
+		// Multiplying by 1: return b unchanged
+		result = b
+	} else if b.NumValue == 1 {
+		// Multiplying by 1: return a unchanged
+		result = a
+	} else if a.NumValue == -1 {
+		// Multiplying by -1: negation
+		result = BASICValue{NumValue: -b.NumValue, IsNumeric: true}
+	} else if b.NumValue == -1 {
+		// Multiplying by -1: negation
+		result = BASICValue{NumValue: -a.NumValue, IsNumeric: true}
+	} else if a.NumValue == 2 {
+		// Multiplying by 2: doubling (faster than general multiplication)
+		result = BASICValue{NumValue: b.NumValue + b.NumValue, IsNumeric: true}
+	} else if b.NumValue == 2 {
+		// Multiplying by 2: doubling (faster than general multiplication)
+		result = BASICValue{NumValue: a.NumValue + a.NumValue, IsNumeric: true}
+	} else {
+		// General case
+		result = BASICValue{
+			NumValue:  a.NumValue * b.NumValue,
+			IsNumeric: true,
 		}
 	}
-
-	return vm.execBinaryOp(func(a, b BASICValue) (BASICValue, error) {
-		if !a.IsNumeric || !b.IsNumeric {
-			return BASICValue{}, fmt.Errorf("type mismatch in multiplication")
-		}
-		return newNumericBASICValue(a.NumValue * b.NumValue), nil
-	})
+	
+	vm.stack.FastPush(result)
+	vm.pc++
+	return nil
 }
 
-// handleDiv handles division with inline optimization
+// handleDiv handles division with advanced optimizations
 func (vm *BytecodeVM) handleDiv(inst *Instruction) error {
-	if vm.stack.HasItems(2) {
-		b := vm.stack.FastPop()
-		a := vm.stack.FastPop()
+	// Check stack has enough items
+	if !vm.stack.HasItems(2) {
+		return fmt.Errorf("DIV: insufficient operands on stack")
+	}
+	
+	b := vm.stack.FastPop()
+	a := vm.stack.FastPop()
 
-		if a.IsNumeric && b.IsNumeric {
-			if b.NumValue == 0 {
-				return fmt.Errorf("division by zero")
-			}
-			result := BASICValue{
-				NumValue:  a.NumValue / b.NumValue,
-				IsNumeric: true,
-			}
-			vm.stack.FastPush(result)
-			vm.pc++
-			return nil
-		} else {
-			return fmt.Errorf("type mismatch in division")
+	if !a.IsNumeric || !b.IsNumeric {
+		return fmt.Errorf("DIV: type mismatch, both operands must be numeric")
+	}
+	
+	if b.NumValue == 0 {
+		return fmt.Errorf("DIV: division by zero")
+	}
+	
+	// Special optimizations for common division patterns
+	var result BASICValue
+	if a.NumValue == 0 {
+		// 0 divided by anything: always 0
+		result = BASICValue{NumValue: 0, IsNumeric: true}
+	} else if b.NumValue == 1 {
+		// Dividing by 1: return a unchanged
+		result = a
+	} else if a.NumValue == b.NumValue {
+		// Self-division: always 1
+		result = BASICValue{NumValue: 1, IsNumeric: true}
+	} else if b.NumValue == -1 {
+		// Dividing by -1: negation
+		result = BASICValue{NumValue: -a.NumValue, IsNumeric: true}
+	} else if b.NumValue == 2 {
+		// Dividing by 2: halving (faster than general division)
+		result = BASICValue{NumValue: a.NumValue * 0.5, IsNumeric: true}
+	} else {
+		// General case
+		result = BASICValue{
+			NumValue:  a.NumValue / b.NumValue,
+			IsNumeric: true,
 		}
 	}
-
-	return vm.execBinaryOp(func(a, b BASICValue) (BASICValue, error) {
-		if !a.IsNumeric || !b.IsNumeric {
-			return BASICValue{}, fmt.Errorf("type mismatch in division")
-		}
-		if b.NumValue == 0 {
-			return BASICValue{}, fmt.Errorf("division by zero")
-		}
-		return newNumericBASICValue(a.NumValue / b.NumValue), nil
-	})
+	
+	vm.stack.FastPush(result)
+	vm.pc++
+	return nil
 }
 
 // handleMod handles modulo with inline optimization
 func (vm *BytecodeVM) handleMod(inst *Instruction) error {
-	if vm.stack.HasItems(2) {
-		b := vm.stack.FastPop()
-		a := vm.stack.FastPop()
-
-		if a.IsNumeric && b.IsNumeric {
-			if b.NumValue == 0 {
-				return fmt.Errorf("division by zero in modulo")
-			}
-			result := BASICValue{
-				NumValue:  math.Mod(a.NumValue, b.NumValue),
-				IsNumeric: true,
-			}
-			vm.stack.FastPush(result)
-			vm.pc++
-			return nil
-		} else {
-			return fmt.Errorf("type mismatch in modulo")
-		}
+	// Check stack has enough items
+	if !vm.stack.HasItems(2) {
+		return fmt.Errorf("MOD: insufficient operands on stack")
 	}
+	
+	b := vm.stack.FastPop()
+	a := vm.stack.FastPop()
 
-	return vm.execBinaryOp(func(a, b BASICValue) (BASICValue, error) {
-		if !a.IsNumeric || !b.IsNumeric {
-			return BASICValue{}, fmt.Errorf("type mismatch in modulo")
-		}
-		if b.NumValue == 0 {
-			return BASICValue{}, fmt.Errorf("division by zero in modulo")
-		}
-		return newNumericBASICValue(math.Mod(a.NumValue, b.NumValue)), nil
-	})
+	if !a.IsNumeric || !b.IsNumeric {
+		return fmt.Errorf("MOD: type mismatch, both operands must be numeric")
+	}
+	
+	if b.NumValue == 0 {
+		return fmt.Errorf("MOD: division by zero in modulo")
+	}
+	
+	result := BASICValue{
+		NumValue:  math.Mod(a.NumValue, b.NumValue),
+		IsNumeric: true,
+	}
+	vm.stack.FastPush(result)
+	vm.pc++
+	return nil
 }
 
 // handlePow handles power with inline optimization
 func (vm *BytecodeVM) handlePow(inst *Instruction) error {
-	if vm.stack.HasItems(2) {
-		b := vm.stack.FastPop()
-		a := vm.stack.FastPop()
-
-		if a.IsNumeric && b.IsNumeric {
-			result := BASICValue{
-				NumValue:  math.Pow(a.NumValue, b.NumValue),
-				IsNumeric: true,
-			}
-			vm.stack.FastPush(result)
-			vm.pc++
-			return nil
-		} else {
-			return fmt.Errorf("type mismatch in power")
-		}
+	// Check stack has enough items
+	if !vm.stack.HasItems(2) {
+		return fmt.Errorf("POW: insufficient operands on stack")
 	}
+	
+	b := vm.stack.FastPop()
+	a := vm.stack.FastPop()
 
-	return vm.execBinaryOp(func(a, b BASICValue) (BASICValue, error) {
-		if !a.IsNumeric || !b.IsNumeric {
-			return BASICValue{}, fmt.Errorf("type mismatch in power")
+	if !a.IsNumeric || !b.IsNumeric {
+		return fmt.Errorf("POW: type mismatch, both operands must be numeric")
+	}
+	
+	// Check for common edge cases for performance
+	if b.NumValue == 0 {
+		// Any number to the power of 0 is 1
+		vm.stack.FastPush(BASICValue{NumValue: 1, IsNumeric: true})
+	} else if b.NumValue == 1 {
+		// Any number to the power of 1 is itself
+		vm.stack.FastPush(a)
+	} else if a.NumValue == 0 && b.NumValue < 0 {
+		return fmt.Errorf("POW: zero to negative power is undefined")
+	} else if a.NumValue == 1 {
+		// 1 to any power is 1
+		vm.stack.FastPush(BASICValue{NumValue: 1, IsNumeric: true})
+	} else if b.NumValue == 2 {
+		// Squaring is faster than general power
+		result := a.NumValue * a.NumValue
+		vm.stack.FastPush(BASICValue{NumValue: result, IsNumeric: true})
+	} else if b.NumValue == 0.5 {
+		// Square root optimization
+		if a.NumValue < 0 {
+			return fmt.Errorf("POW: square root of negative number")
 		}
-		return newNumericBASICValue(math.Pow(a.NumValue, b.NumValue)), nil
-	})
+		result := math.Sqrt(a.NumValue)
+		vm.stack.FastPush(BASICValue{NumValue: result, IsNumeric: true})
+	} else if b.NumValue == -1 {
+		// Reciprocal
+		if a.NumValue == 0 {
+			return fmt.Errorf("POW: division by zero (reciprocal)")
+		}
+		result := 1 / a.NumValue
+		vm.stack.FastPush(BASICValue{NumValue: result, IsNumeric: true})
+	} else {
+		result := BASICValue{
+			NumValue:  math.Pow(a.NumValue, b.NumValue),
+			IsNumeric: true,
+		}
+		vm.stack.FastPush(result)
+	}
+	
+	vm.pc++
+	return nil
 }
 
 // handleNeg handles negation with inline optimization
 func (vm *BytecodeVM) handleNeg(inst *Instruction) error {
-	if vm.stack.HasItems(1) {
-		a := vm.stack.FastPop()
-
-		if a.IsNumeric {
-			result := BASICValue{
-				NumValue:  -a.NumValue,
-				IsNumeric: true,
-			}
-			vm.stack.FastPush(result)
-			vm.pc++
-			return nil
-		} else {
-			return fmt.Errorf("type mismatch in negation")
-		}
+	// Check stack has enough items
+	if !vm.stack.HasItems(1) {
+		return fmt.Errorf("NEG: insufficient operands on stack")
 	}
+	
+	a := vm.stack.FastPop()
 
-	return vm.execUnaryOp(func(a BASICValue) (BASICValue, error) {
-		if !a.IsNumeric {
-			return BASICValue{}, fmt.Errorf("type mismatch in negation")
-		}
-		return newNumericBASICValue(-a.NumValue), nil
-	})
+	if !a.IsNumeric {
+		return fmt.Errorf("NEG: type mismatch, operand must be numeric")
+	}
+	
+	result := BASICValue{
+		NumValue:  -a.NumValue,
+		IsNumeric: true,
+	}
+	vm.stack.FastPush(result)
+	vm.pc++
+	return nil
 }
 
-// Comparison handlers with inline optimization
+// Comparison handlers with advanced optimizations
 func (vm *BytecodeVM) handleEq(inst *Instruction) error {
-	if vm.stack.HasItems(2) {
-		b := vm.stack.FastPop()
-		a := vm.stack.FastPop()
+	if !vm.stack.HasItems(2) {
+		return fmt.Errorf("EQ: insufficient operands on stack")
+	}
+	
+	b := vm.stack.FastPop()
+	a := vm.stack.FastPop()
 
-		var result bool
-		if a.IsNumeric && b.IsNumeric {
-			result = a.NumValue == b.NumValue
-		} else {
-			result = vm.toString(a) == vm.toString(b)
-		}
-
-		vm.stack.FastPush(BASICValue{
-			NumValue:  vm.boolToNum(result),
-			IsNumeric: true,
-		})
-		vm.pc++
-		return nil
+	var result bool
+	if a.IsNumeric && b.IsNumeric {
+		// Fast numeric comparison
+		result = a.NumValue == b.NumValue
+	} else if !a.IsNumeric && !b.IsNumeric {
+		// Fast string comparison
+		result = a.StrValue == b.StrValue
+	} else {
+		// Mixed type comparison (requires toString conversion)
+		result = vm.toString(a) == vm.toString(b)
 	}
 
-	return vm.execComparison(func(a, b BASICValue) bool {
-		if a.IsNumeric && b.IsNumeric {
-			return a.NumValue == b.NumValue
-		}
-		return vm.toString(a) == vm.toString(b)
-	})
+	// Use pre-allocated boolean values for better performance
+	vm.stack.FastPush(getBoolValue(result))
+	vm.pc++
+	return nil
 }
 
 func (vm *BytecodeVM) handleNe(inst *Instruction) error {
-	if vm.stack.HasItems(2) {
-		b := vm.stack.FastPop()
-		a := vm.stack.FastPop()
+	if !vm.stack.HasItems(2) {
+		return fmt.Errorf("NE: insufficient operands on stack")
+	}
+	
+	b := vm.stack.FastPop()
+	a := vm.stack.FastPop()
 
-		var result bool
-		if a.IsNumeric && b.IsNumeric {
-			result = a.NumValue != b.NumValue
-		} else {
-			result = vm.toString(a) != vm.toString(b)
-		}
-
-		vm.stack.FastPush(BASICValue{
-			NumValue:  vm.boolToNum(result),
-			IsNumeric: true,
-		})
-		vm.pc++
-		return nil
+	var result bool
+	if a.IsNumeric && b.IsNumeric {
+		// Fast numeric comparison
+		result = a.NumValue != b.NumValue
+	} else if !a.IsNumeric && !b.IsNumeric {
+		// Fast string comparison
+		result = a.StrValue != b.StrValue
+	} else {
+		// Mixed type comparison (requires toString conversion)
+		result = vm.toString(a) != vm.toString(b)
 	}
 
-	return vm.execComparison(func(a, b BASICValue) bool {
-		if a.IsNumeric && b.IsNumeric {
-			return a.NumValue != b.NumValue
-		}
-		return vm.toString(a) != vm.toString(b)
-	})
+	// Use pre-allocated boolean values for better performance
+	vm.stack.FastPush(getBoolValue(result))
+	vm.pc++
+	return nil
 }
 
 func (vm *BytecodeVM) handleLt(inst *Instruction) error {
@@ -1292,7 +1442,108 @@ func (vm *BytecodeVM) handleColor(inst *Instruction) error   { return vm.handleL
 func (vm *BytecodeVM) handleKey(inst *Instruction) error     { return vm.handleLegacyInstruction(inst) }
 func (vm *BytecodeVM) handleData(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
 func (vm *BytecodeVM) handleRead(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleDim(inst *Instruction) error     { return vm.handleLegacyInstruction(inst) }
+// Native DIM handler with optimized array allocation
+func (vm *BytecodeVM) handleDim(inst *Instruction) error {
+	// Get array specification from instruction operand
+	arraySpec := inst.Operand1.(string)
+	
+	// Parse array specification (e.g., "A(10)" or "B$(5,5)")
+	openParen := strings.IndexByte(arraySpec, '(')
+	if openParen == -1 {
+		return fmt.Errorf("DIM: invalid array specification")
+	}
+	
+	arrayName := strings.ToUpper(strings.TrimSpace(arraySpec[:openParen]))
+	dimensionsStr := strings.TrimSpace(arraySpec[openParen+1:len(arraySpec)-1])
+	
+	// Parse dimensions
+	dimensions := strings.Split(dimensionsStr, ",")
+	if len(dimensions) > 2 {
+		return fmt.Errorf("DIM: maximum 2 dimensions supported")
+	}
+	
+	// Evaluate dimension expressions
+	var sizes []int
+	for _, dimStr := range dimensions {
+		dimVal, err := vm.evaluateDimensionExpression(strings.TrimSpace(dimStr))
+		if err != nil {
+			return fmt.Errorf("DIM: invalid dimension expression: %v", err)
+		}
+		if dimVal < 0 {
+			return fmt.Errorf("DIM: negative array size not allowed")
+		}
+		sizes = append(sizes, dimVal)
+	}
+	
+	// Determine array type
+	isStringArray := strings.HasSuffix(arrayName, "$")
+	
+	// Optimized array allocation
+	if len(sizes) == 1 {
+		// 1D array - linear allocation
+		vm.allocate1DArray(arrayName, sizes[0], isStringArray)
+	} else {
+		// 2D array - matrix allocation
+		vm.allocate2DArray(arrayName, sizes[0], sizes[1], isStringArray)
+	}
+	
+	vm.pc++
+	return nil
+}
+
+// evaluateDimensionExpression evaluates array dimension expressions
+func (vm *BytecodeVM) evaluateDimensionExpression(expr string) (int, error) {
+	// For now, simple numeric parsing - could be enhanced for complex expressions
+	if val, err := strconv.ParseFloat(expr, 64); err == nil {
+		return int(val), nil
+	}
+	
+	// Could evaluate variables or expressions here
+	return 0, fmt.Errorf("complex dimension expressions not yet supported")
+}
+
+// allocate1DArray optimizes 1D array allocation
+func (vm *BytecodeVM) allocate1DArray(name string, size int, isString bool) {
+	arrayKey := name + "("
+	
+	// Store array metadata
+	vm.variables[arrayKey+"SIZE"] = BASICValue{NumValue: float64(size), IsNumeric: true}
+	vm.variables[arrayKey+"DIMS"] = BASICValue{NumValue: 1, IsNumeric: true}
+	
+	// Pre-allocate array elements with default values
+	defaultValue := BASICValue{NumValue: 0, IsNumeric: true}
+	if isString {
+		defaultValue = BASICValue{StrValue: "", IsNumeric: false}
+	}
+	
+	// Bulk allocation for better performance
+	for i := 0; i <= size; i++ {
+		vm.variables[fmt.Sprintf("%s%d)", name, i)] = defaultValue
+	}
+}
+
+// allocate2DArray optimizes 2D array allocation
+func (vm *BytecodeVM) allocate2DArray(name string, size1, size2 int, isString bool) {
+	arrayKey := name + "("
+	
+	// Store array metadata
+	vm.variables[arrayKey+"SIZE1"] = BASICValue{NumValue: float64(size1), IsNumeric: true}
+	vm.variables[arrayKey+"SIZE2"] = BASICValue{NumValue: float64(size2), IsNumeric: true}
+	vm.variables[arrayKey+"DIMS"] = BASICValue{NumValue: 2, IsNumeric: true}
+	
+	// Pre-allocate array elements with default values
+	defaultValue := BASICValue{NumValue: 0, IsNumeric: true}
+	if isString {
+		defaultValue = BASICValue{StrValue: "", IsNumeric: false}
+	}
+	
+	// Bulk allocation for better performance
+	for i := 0; i <= size1; i++ {
+		for j := 0; j <= size2; j++ {
+			vm.variables[fmt.Sprintf("%s%d,%d)", name, i, j)] = defaultValue
+		}
+	}
+}
 func (vm *BytecodeVM) handleTextGfx(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
 func (vm *BytecodeVM) handleClearGraphics(inst *Instruction) error {
 	return vm.handleLegacyInstruction(inst)
@@ -1628,7 +1879,7 @@ func (vm *BytecodeVM) executeInstructionLegacyInternal(inst Instruction) error {
 		vm.callStack = vm.callStack[:len(vm.callStack)-1]
 		vm.pc = returnAddr
 
-	// FOR loop operations
+	// FOR loop operations - optimized native implementation
 	case OP_FOR_INIT:
 		varName := strings.ToUpper(inst.Operand1.(string))
 
@@ -1655,28 +1906,34 @@ func (vm *BytecodeVM) executeInstructionLegacyInternal(inst Instruction) error {
 			return fmt.Errorf("FOR loop requires numeric values at line %d", inst.LineNum)
 		}
 
-		// Check if loop should execute at all
-		shouldExecute := false
+		// Advanced optimization: Pre-calculate loop characteristics
+		var shouldExecute bool
+		var loopCount int
+		
 		if step.NumValue > 0 {
 			shouldExecute = current.NumValue <= end.NumValue
-		} else if step.NumValue < 0 {
+			if shouldExecute {
+				loopCount = int((end.NumValue - current.NumValue) / step.NumValue + 1)
+			}
+		} else {
 			shouldExecute = current.NumValue >= end.NumValue
+			if shouldExecute {
+				loopCount = int((current.NumValue - end.NumValue) / (-step.NumValue) + 1)
+			}
 		}
 
 		if shouldExecute {
-			// Create FOR loop entry and continue with loop body
+			// Create optimized FOR loop entry
 			forLoop := VMForLoop{
-				Variable: varName,
-				Current:  current,
-				End:      end,
-				Step:     step,
-				StartPC:  vm.pc + 1, // Next instruction after FOR_INIT
-				NextPC:   vm.pc + 1,
+				Variable:  varName,
+				Current:   current,
+				End:       end,
+				Step:      step,
+				StartPC:   vm.pc + 1, // Next instruction after FOR_INIT
+				NextPC:    vm.pc + 1,
+				LoopCount: loopCount, // Store for optimization hints
 			}
 			vm.forLoops = append(vm.forLoops, forLoop)
-		} else {
-			// Skip loop body - in a real implementation, we'd need to find the matching NEXT
-			// For now, this will be handled by the loop termination check
 		}
 		// Always continue to next instruction (loop body or past loop)
 		vm.pc++
@@ -1686,24 +1943,25 @@ func (vm *BytecodeVM) executeInstructionLegacyInternal(inst Instruction) error {
 			return fmt.Errorf("FOR_CHECK without FOR loop")
 		}
 
-		// Check current FOR loop condition
+		// Get current FOR loop with fast access
 		loop := &vm.forLoops[len(vm.forLoops)-1]
 		current := vm.variables[loop.Variable]
 
-		// Determine if loop should continue
-		shouldContinue := false
+		// Ultra-fast continuation check with branch prediction optimization
+		var shouldContinue bool
 		if loop.Step.NumValue > 0 {
+			// Ascending loop (most common case first)
 			shouldContinue = current.NumValue <= loop.End.NumValue
 		} else {
+			// Descending loop
 			shouldContinue = current.NumValue >= loop.End.NumValue
 		}
 
 		if shouldContinue {
 			vm.pc++ // Continue with loop body
 		} else {
-			// Exit loop - find matching NEXT
+			// Exit loop - optimized cleanup
 			vm.forLoops = vm.forLoops[:len(vm.forLoops)-1]
-			// For now, just continue - NEXT will handle the jump
 			vm.pc++
 		}
 
@@ -1736,29 +1994,32 @@ func (vm *BytecodeVM) executeInstructionLegacyInternal(inst Instruction) error {
 
 		loop := &vm.forLoops[loopIndex]
 
-		// Increment loop variable
+		// Optimized increment with direct memory access
 		current := vm.variables[loop.Variable]
 		if !current.IsNumeric {
 			return fmt.Errorf("FOR loop variable %s must be numeric at line %d", loop.Variable, inst.LineNum)
 		}
 
-		current.NumValue += loop.Step.NumValue
-		vm.variables[loop.Variable] = current
-		loop.Current = current
+		// Fast increment with single assignment
+		newValue := current.NumValue + loop.Step.NumValue
+		vm.variables[loop.Variable] = BASICValue{NumValue: newValue, IsNumeric: true}
+		loop.Current.NumValue = newValue // Update cached value
 
-		// Check if loop should continue with proper step direction handling
-		shouldContinue := false
+		// Ultra-fast continuation check with branch prediction
+		var shouldContinue bool
 		if loop.Step.NumValue > 0 {
-			shouldContinue = current.NumValue <= loop.End.NumValue
-		} else if loop.Step.NumValue < 0 {
-			shouldContinue = current.NumValue >= loop.End.NumValue
+			// Ascending loop (most common case)
+			shouldContinue = newValue <= loop.End.NumValue
+		} else {
+			// Descending loop
+			shouldContinue = newValue >= loop.End.NumValue
 		}
 
 		if shouldContinue {
-			// Jump back to loop start
+			// Jump back to loop start (hot path)
 			vm.pc = loop.StartPC
 		} else {
-			// Exit loop - remove all nested loops up to and including this one
+			// Exit loop - optimized nested loop cleanup
 			vm.forLoops = vm.forLoops[:loopIndex]
 			vm.pc++
 		}
@@ -2568,14 +2829,34 @@ func (vm *BytecodeVM) execComparison(cmp func(a, b BASICValue) bool) error {
 	return nil
 }
 
-// toString converts a BASICValue to string
+// toString converts a BASICValue to string with optimized integer handling
 func (vm *BytecodeVM) toString(value BASICValue) string {
 	if value.IsNumeric {
-		// Format number appropriately
+		// Fast path for common integer values
 		if value.NumValue == float64(int64(value.NumValue)) {
-			return strconv.FormatInt(int64(value.NumValue), 10)
+			intVal := int64(value.NumValue)
+			
+			// Ultra-fast path for single digits (most common case)
+			if intVal >= 0 && intVal <= 9 {
+				return string(rune('0' + intVal))
+			}
+			
+			// Fast path for common small integers
+			if intVal >= -999 && intVal <= 9999 {
+				return strconv.FormatInt(intVal, 10)
+			}
+			
+			// General integer case
+			return strconv.FormatInt(intVal, 10)
 		}
-		return strconv.FormatFloat(value.NumValue, 'f', -1, 64)
+		
+		// Float formatting with reduced precision for common cases
+		if value.NumValue >= -1e6 && value.NumValue <= 1e6 {
+			return strconv.FormatFloat(value.NumValue, 'f', -1, 64)
+		}
+		
+		// Scientific notation for very large/small numbers
+		return strconv.FormatFloat(value.NumValue, 'e', -1, 64)
 	}
 	return value.StrValue
 }
@@ -2588,12 +2869,29 @@ func (vm *BytecodeVM) isTrue(value BASICValue) bool {
 	return value.StrValue != ""
 }
 
+// Pre-allocated common BASICValue constants to avoid repeated allocations
+var (
+	boolTrue  = BASICValue{NumValue: -1, IsNumeric: true} // BASIC uses -1 for true
+	boolFalse = BASICValue{NumValue: 0, IsNumeric: true}
+	numZero   = BASICValue{NumValue: 0, IsNumeric: true}
+	numOne    = BASICValue{NumValue: 1, IsNumeric: true}
+	numNegOne = BASICValue{NumValue: -1, IsNumeric: true}
+)
+
 // boolToNum converts a boolean to numeric value (0 or -1, like BASIC)
 func (vm *BytecodeVM) boolToNum(b bool) float64 {
 	if b {
 		return -1 // BASIC uses -1 for true
 	}
 	return 0
+}
+
+// getBoolValue returns pre-allocated boolean BASICValue (optimization)
+func getBoolValue(b bool) BASICValue {
+	if b {
+		return boolTrue
+	}
+	return boolFalse
 }
 
 // callBuiltinFunction calls a built-in TinyBASIC function
@@ -2729,6 +3027,291 @@ func (vm *BytecodeVM) callBuiltinFunction(funcName string, argCount int) error {
 		}
 
 		vm.stack.Push(newStringBASICValue(result))
+		return nil
+
+	case "SIN":
+		if argCount != 1 {
+			return fmt.Errorf("SIN requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("SIN requires numeric argument")
+		}
+		result := math.Sin(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "COS":
+		if argCount != 1 {
+			return fmt.Errorf("COS requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("COS requires numeric argument")
+		}
+		result := math.Cos(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "TAN":
+		if argCount != 1 {
+			return fmt.Errorf("TAN requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("TAN requires numeric argument")
+		}
+		result := math.Tan(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "ASIN":
+		if argCount != 1 {
+			return fmt.Errorf("ASIN requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("ASIN requires numeric argument")
+		}
+		if arg.NumValue < -1 || arg.NumValue > 1 {
+			return fmt.Errorf("ASIN argument must be between -1 and 1")
+		}
+		result := math.Asin(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "ACOS":
+		if argCount != 1 {
+			return fmt.Errorf("ACOS requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("ACOS requires numeric argument")
+		}
+		if arg.NumValue < -1 || arg.NumValue > 1 {
+			return fmt.Errorf("ACOS argument must be between -1 and 1")
+		}
+		result := math.Acos(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "ATAN":
+		if argCount != 1 {
+			return fmt.Errorf("ATAN requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("ATAN requires numeric argument")
+		}
+		result := math.Atan(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "LOG":
+		if argCount != 1 {
+			return fmt.Errorf("LOG requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("LOG requires numeric argument")
+		}
+		if arg.NumValue <= 0 {
+			return fmt.Errorf("LOG argument must be positive")
+		}
+		result := math.Log(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "LOG10":
+		if argCount != 1 {
+			return fmt.Errorf("LOG10 requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("LOG10 requires numeric argument")
+		}
+		if arg.NumValue <= 0 {
+			return fmt.Errorf("LOG10 argument must be positive")
+		}
+		result := math.Log10(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "EXP":
+		if argCount != 1 {
+			return fmt.Errorf("EXP requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("EXP requires numeric argument")
+		}
+		// Prevent overflow
+		if arg.NumValue > 700 {
+			return fmt.Errorf("EXP argument too large (overflow)")
+		}
+		result := math.Exp(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "SQRT", "SQR":
+		if argCount != 1 {
+			return fmt.Errorf("SQRT requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("SQRT requires numeric argument")
+		}
+		if arg.NumValue < 0 {
+			return fmt.Errorf("SQRT argument must be non-negative")
+		}
+		result := math.Sqrt(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "PI":
+		if argCount != 0 {
+			return fmt.Errorf("PI requires no arguments, got %d", argCount)
+		}
+		vm.stack.Push(newNumericBASICValue(math.Pi))
+		return nil
+
+	case "E":
+		if argCount != 0 {
+			return fmt.Errorf("E requires no arguments, got %d", argCount)
+		}
+		vm.stack.Push(newNumericBASICValue(math.E))
+		return nil
+
+	case "FLOOR":
+		if argCount != 1 {
+			return fmt.Errorf("FLOOR requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("FLOOR requires numeric argument")
+		}
+		result := math.Floor(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "CEIL":
+		if argCount != 1 {
+			return fmt.Errorf("CEIL requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("CEIL requires numeric argument")
+		}
+		result := math.Ceil(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "ROUND":
+		if argCount != 1 {
+			return fmt.Errorf("ROUND requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("ROUND requires numeric argument")
+		}
+		result := math.Round(arg.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "POW":
+		if argCount != 2 {
+			return fmt.Errorf("POW requires 2 arguments, got %d", argCount)
+		}
+		exponent, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		base, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !base.IsNumeric || !exponent.IsNumeric {
+			return fmt.Errorf("POW requires numeric arguments")
+		}
+		result := math.Pow(base.NumValue, exponent.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "MIN":
+		if argCount != 2 {
+			return fmt.Errorf("MIN requires 2 arguments, got %d", argCount)
+		}
+		b, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		a, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !a.IsNumeric || !b.IsNumeric {
+			return fmt.Errorf("MIN requires numeric arguments")
+		}
+		result := math.Min(a.NumValue, b.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
+		return nil
+
+	case "MAX":
+		if argCount != 2 {
+			return fmt.Errorf("MAX requires 2 arguments, got %d", argCount)
+		}
+		b, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		a, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !a.IsNumeric || !b.IsNumeric {
+			return fmt.Errorf("MAX requires numeric arguments")
+		}
+		result := math.Max(a.NumValue, b.NumValue)
+		vm.stack.Push(newNumericBASICValue(result))
 		return nil
 
 	case "LEFT$":
