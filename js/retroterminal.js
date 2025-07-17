@@ -471,6 +471,28 @@ function setupInputHandling() {
                         break; // Exit the switch case
                     }
 
+                    // Check if we are in board mode. Handle empty Enter specially for message viewing.
+                    if (window.RetroConsole && window.RetroConsole.inputMode === 6 /* InputModeBoard */) {
+                        const originalInput = window.RetroConsole.input;
+                        const trimmedInput = originalInput.trim();
+                        
+                        // Force send a message even for empty input - use special continue signal
+                        const content = trimmedInput === "" ? "BOARD_CONTINUE" : originalInput;
+                        
+                        const inputMessage = {
+                            type: 1,
+                            content: content
+                        };
+                        
+                        if (sendMessageWithSessionID(inputMessage)) {
+                            // Input zurücksetzen NACH dem Senden
+                            window.RetroConsole.input = "";
+                            window.RetroConsole.cursorPos = 0;
+                            window.RetroConsole.drawTerminal(); // Redraw to clear the input line
+                        }
+                        break; // Exit the switch case
+                    }
+
                     // Normal Terminal Mode: Send via standard WebSocket
                     const inputMessage = {
                         type: 1, 

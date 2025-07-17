@@ -63,6 +63,10 @@ func (os *TinyOS) ExecuteWithContext(ctx context.Context, input string) []shared
 			os.SetInputMode(sessionID, InputModeOSShell)
 		}
 
+	case InputModeBoard:
+		// Handle board input
+		return os.HandleBoardInput(input, sessionID)
+		
 	case InputModeChess:
 		os.sessionMutex.Lock()
 		session, exists := os.sessions[sessionID]
@@ -202,7 +206,7 @@ func (os *TinyOS) ExecuteWithContext(ctx context.Context, input string) []shared
 	args := tokens[1:] // For commands that need the Session-ID, we add it as the first argument
 	if sessionID != "" {
 		switch cmd {
-		case "whoami", "logout", "passwd", "ls", "pwd", "cd", "mkdir", "cat", "write", "rm", "limits", "chat", "chathistory", "basic", "run", "edit", "view", "resources", "telnet":
+		case "whoami", "logout", "passwd", "ls", "pwd", "cd", "mkdir", "cat", "write", "rm", "limits", "chat", "chathistory", "basic", "run", "edit", "view", "resources", "telnet", "board":
 			args = append([]string{sessionID}, args...)
 		}
 	}
@@ -276,6 +280,8 @@ func (os *TinyOS) ExecuteWithContext(ctx context.Context, input string) []shared
 		return os.cmdAbout(args)
 	case "passwd":
 		return os.cmdPasswd(args)
+	case "board":
+		return os.cmdBoard(args)
 	default:
 		logger.Debug(logger.AreaTerminal, "Unknown command: %s", cmd)
 		return os.CreateWrappedTextMessage(sessionID, "Unknown command: "+cmd)
@@ -369,7 +375,7 @@ func (os *TinyOS) ProcessCommand(sessionID string, input string) []shared.Messag
 	// For commands that need the Session-ID, we add it as the first argument
 	if sessionID != "" {
 		switch cmd {
-		case "passwd", "whoami", "logout", "ls", "pwd", "cd", "mkdir", "cat", "write", "rm", "limits", "chat", "chathistory", "basic", "run", "edit", "view", "resources", "debug", "telnet", "chess":
+		case "passwd", "whoami", "logout", "ls", "pwd", "cd", "mkdir", "cat", "write", "rm", "limits", "chat", "chathistory", "basic", "run", "edit", "view", "resources", "debug", "telnet", "chess", "board":
 			args = append([]string{sessionID}, args...)
 			logger.Debug(logger.AreaTerminal, "Added sessionID to args for command '%s', args length: %d", cmd, len(args))
 		}
@@ -443,6 +449,8 @@ func (os *TinyOS) ProcessCommand(sessionID string, input string) []shared.Messag
 		return os.cmdAbout(args)
 	case "passwd":
 		return os.cmdPasswd(args)
+	case "board":
+		return os.cmdBoard(args)
 	default:
 		logger.Debug(logger.AreaTerminal, "Unknown command: %s", cmd)
 		return os.CreateWrappedTextMessage(sessionID, "Unknown command: "+cmd)

@@ -19,7 +19,8 @@
       "Bash(grep:*)",
       "Bash(sed:*)",
       "Bash(npm run serve:dev:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(echo:*)"
     ],
     "deny": []
   }

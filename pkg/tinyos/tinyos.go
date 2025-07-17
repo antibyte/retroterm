@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/antibyte/retroterm/pkg/board"
 	"github.com/antibyte/retroterm/pkg/chess"
 	"github.com/antibyte/retroterm/pkg/configuration"
 	"github.com/antibyte/retroterm/pkg/editor"
@@ -50,6 +51,7 @@ const (
 	InputModeRegistrationProcess InputMode = 6
 	InputModePasswordChange      InputMode = 7
 	InputModeBasicInterpreter    InputMode = 8
+	InputModeBoard               InputMode = 9
 )
 
 // isTemporaryUser checks if a username should receive temporary sessions
@@ -143,6 +145,10 @@ type TinyOS struct {
 
 	// Shutdown channel for telnet output processor
 	telnetOutputShutdown chan bool
+
+	// Board system management
+	boardManager  *board.BoardManager
+	boardSessions map[string]*BoardSession
 
 	// Callback function for sending messages to clients
 	SendToClientCallback func(sessionID string, message shared.Message) error

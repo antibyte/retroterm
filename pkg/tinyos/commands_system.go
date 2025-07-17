@@ -15,7 +15,7 @@ import (
 // cmdHelp displays help information
 func (os *TinyOS) cmdHelp(args []string) []shared.Message {
 	commands := []string{
-		"help", "echo", "clear", "basic", "run", "chess", "chat", "chathistory", "register", "login", "logout", "whoami", "ls", "pwd", "cd", "mkdir", "cat", "write", "rm", "limits", "resources", "edit", "view", "debug", "telnet", "date", "about", "passwd",
+		"help", "echo", "clear", "basic", "run", "chess", "chat", "chathistory", "register", "login", "logout", "whoami", "ls", "pwd", "cd", "mkdir", "cat", "write", "rm", "limits", "resources", "edit", "view", "debug", "telnet", "date", "about", "passwd", "board",
 	}
 	helpTexts := map[string]string{
 		"help":  "help [command]\nShows a list of all commands or help for a specific command.\nExample: help ls",
@@ -42,6 +42,7 @@ func (os *TinyOS) cmdHelp(args []string) []shared.Message {
 		"date":   "date\nShows the current date and time with year set to 1984.\nExample: date",
 		"about":  "about\nShows information about this terminal system.\nExample: about",
 		"passwd": "passwd\nChanges the password of the current user.\nExample: passwd",
+		"board":  "board\nAccess the RetroTerm BBS message board system.\nGuests can read messages, registered users can post.\nExample: board",
 	}
 
 	// SessionID aus args extrahieren, wenn vorhanden

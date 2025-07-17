@@ -1032,6 +1032,9 @@ Object.assign(window.RetroConsole, {
                         case 'PAGER':
                             this.inputMode = 5;
                             break;
+                        case 'BOARD':
+                            this.inputMode = 6;
+                            break;
                         default:
                             this.inputMode = 0; // Default to OS_SHELL if unknown
                     }
