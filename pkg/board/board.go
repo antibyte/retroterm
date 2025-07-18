@@ -427,15 +427,13 @@ func (bm *BoardManager) FormatMessage(message BoardMessage, terminalWidth int) [
 	
 	lines = append(lines, createFrameBorder("middle"))
 	
-	// Word wrap the content
+	// Word wrap the content - show full content, not truncated
 	contentLines := wrapText(message.Content, CONTENT_WIDTH)
 	for _, line := range contentLines {
 		lines = append(lines, formatFrameLine(line))
 	}
 	
 	lines = append(lines, createFrameBorder("bottom"))
-	lines = append(lines, "")
-	lines = append(lines, "Press Enter to continue...")
 	lines = append(lines, "")
 	
 	return lines

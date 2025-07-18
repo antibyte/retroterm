@@ -31,6 +31,13 @@ type BoardUI struct {
 	newMessageSubject string
 	newMessageContent string
 	compositionStep   int // 0=subject, 1=content, 2=confirm
+	
+	// Pagination state
+	currentDisplayLines []string
+	paginationIndex     int
+	linesPerPage        int
+	isShowingPagination bool
+	previousState       BoardUIState
 }
 
 // BoardUIState represents the current state of the board UI
@@ -43,6 +50,7 @@ const (
 	BoardStateNewMessage
 	BoardStateNewMessageContent
 	BoardStateNewMessageConfirm
+	BoardStatePagination
 )
 
 // NewBoardUI creates a new board UI instance
@@ -56,6 +64,7 @@ func NewBoardUI(manager *BoardManager, sessionID, username string, isGuest bool,
 		messagesPerPage: 10,
 		terminalWidth:   terminalWidth,
 		terminalHeight:  terminalHeight,
+		linesPerPage:    20, // Leave some space for prompts
 	}
 }
 
@@ -69,6 +78,11 @@ func (ui *BoardUI) ProcessInput(input string) ([]shared.Message, error) {
 	// For ViewMessage state, handle raw input (don't trim)
 	if ui.state == BoardStateViewMessage {
 		return ui.handleViewMessageInput(input)
+	}
+	
+	// For Pagination state, handle raw input (don't trim)
+	if ui.state == BoardStatePagination {
+		return ui.handlePaginationInput(input)
 	}
 	
 	// For all other states, trim input
@@ -104,15 +118,8 @@ func (ui *BoardUI) showCategories() ([]shared.Message, error) {
 	
 	lines := ui.manager.FormatCategoryList(categories, ui.terminalWidth)
 	
-	messages := []shared.Message{}
-	for _, line := range lines {
-		messages = append(messages, shared.Message{
-			Type:    shared.MessageTypeText,
-			Content: line,
-		})
-	}
-	
-	return messages, nil
+	// Use pagination if content is too long
+	return ui.showWithPagination(lines, BoardStateCategories)
 }
 
 // handleCategoriesInput handles input when viewing categories
@@ -190,15 +197,8 @@ func (ui *BoardUI) showMessages() ([]shared.Message, error) {
 	lines := ui.manager.FormatMessageList(messages, ui.currentCategory.Title, 
 		ui.currentPage, totalPages, ui.terminalWidth)
 	
-	result := []shared.Message{}
-	for _, line := range lines {
-		result = append(result, shared.Message{
-			Type:    shared.MessageTypeText,
-			Content: line,
-		})
-	}
-	
-	return result, nil
+	// Use pagination if content is too long
+	return ui.showWithPagination(lines, BoardStateMessages)
 }
 
 // handleMessagesInput handles input when viewing messages list
@@ -283,15 +283,8 @@ func (ui *BoardUI) showMessage() ([]shared.Message, error) {
 	
 	lines := ui.manager.FormatMessage(*ui.currentMessage, ui.terminalWidth)
 	
-	messages := []shared.Message{}
-	for _, line := range lines {
-		messages = append(messages, shared.Message{
-			Type:    shared.MessageTypeText,
-			Content: line,
-		})
-	}
-	
-	return messages, nil
+	// Use pagination if content is too long
+	return ui.showWithPagination(lines, BoardStateViewMessage)
 }
 
 // handleViewMessageInput handles input when viewing a single message
@@ -390,32 +383,27 @@ func (ui *BoardUI) handleNewMessageContentInput(input string) ([]shared.Message,
 func (ui *BoardUI) showMessageConfirmation() ([]shared.Message, error) {
 	contentLines := wrapText(ui.newMessageContent, 72)
 	
-	messages := []shared.Message{
-		{Type: shared.MessageTypeText, Content: ""},
-		{Type: shared.MessageTypeText, Content: createFrameBorder("top")},
-		{Type: shared.MessageTypeText, Content: formatFrameLine(centerPad("Message Preview", CONTENT_WIDTH))},
-		{Type: shared.MessageTypeText, Content: createFrameBorder("middle")},
-		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("From: %s Date: %s", 
-			ui.username, time.Now().Format("2006-01-02 15:04:05")))},
-		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Subject: %s", ui.newMessageSubject))},
-		{Type: shared.MessageTypeText, Content: createFrameBorder("middle")},
-	}
+	lines := []string{}
+	lines = append(lines, "")
+	lines = append(lines, createFrameBorder("top"))
+	lines = append(lines, formatFrameLine(centerPad("Message Preview", CONTENT_WIDTH)))
+	lines = append(lines, createFrameBorder("middle"))
+	lines = append(lines, formatFrameLine(fmt.Sprintf("From: %s Date: %s", 
+		ui.username, time.Now().Format("2006-01-02 15:04:05"))))
+	lines = append(lines, formatFrameLine(fmt.Sprintf("Subject: %s", ui.newMessageSubject)))
+	lines = append(lines, createFrameBorder("middle"))
 	
 	for _, line := range contentLines {
-		messages = append(messages, shared.Message{
-			Type:    shared.MessageTypeText,
-			Content: formatFrameLine(line),
-		})
+		lines = append(lines, formatFrameLine(line))
 	}
 	
-	messages = append(messages, []shared.Message{
-		{Type: shared.MessageTypeText, Content: createFrameBorder("bottom")},
-		{Type: shared.MessageTypeText, Content: ""},
-		{Type: shared.MessageTypeText, Content: "Send this message? (y/n)"},
-		{Type: shared.MessageTypeText, Content: ""},
-	}...)
+	lines = append(lines, createFrameBorder("bottom"))
+	lines = append(lines, "")
+	lines = append(lines, "Send this message? (y/n)")
+	lines = append(lines, "")
 	
-	return messages, nil
+	// Use pagination if content is too long
+	return ui.showWithPagination(lines, BoardStateNewMessageConfirm)
 }
 
 // handleNewMessageConfirmInput handles confirmation input for new messages
@@ -484,3 +472,134 @@ func (ui *BoardUI) IsViewingMessage() bool {
 func (ui *BoardUI) IsActive() bool {
 	return ui.state != BoardStateCategories // Could be enhanced with quit state
 }
+
+// showWithPagination shows content with pagination if it exceeds screen height
+func (ui *BoardUI) showWithPagination(lines []string, returnState BoardUIState) ([]shared.Message, error) {
+	if len(lines) <= ui.linesPerPage {
+		// Content fits on screen, show directly
+		messages := []shared.Message{}
+		for _, line := range lines {
+			messages = append(messages, shared.Message{
+				Type:    shared.MessageTypeText,
+				Content: line,
+			})
+		}
+		return messages, nil
+	}
+	
+	// Content needs pagination
+	ui.currentDisplayLines = lines
+	ui.paginationIndex = 0
+	ui.isShowingPagination = true
+	ui.state = BoardStatePagination
+	
+	// Store the state to return to after pagination
+	ui.previousState = returnState
+	
+	return ui.showCurrentPage()
+}
+
+// showCurrentPage displays the current page of paginated content
+func (ui *BoardUI) showCurrentPage() ([]shared.Message, error) {
+	if !ui.isShowingPagination || len(ui.currentDisplayLines) == 0 {
+		return []shared.Message{}, nil
+	}
+	
+	start := ui.paginationIndex
+	end := start + ui.linesPerPage
+	
+	if end > len(ui.currentDisplayLines) {
+		end = len(ui.currentDisplayLines)
+	}
+	
+	messages := []shared.Message{}
+	
+	// Show current page content
+	for i := start; i < end; i++ {
+		messages = append(messages, shared.Message{
+			Type:    shared.MessageTypeText,
+			Content: ui.currentDisplayLines[i],
+		})
+	}
+	
+	// Add pagination prompt if there's more content
+	if end < len(ui.currentDisplayLines) {
+		messages = append(messages, shared.Message{
+			Type:    shared.MessageTypeText,
+			Content: "",
+		})
+		messages = append(messages, shared.Message{
+			Type:    shared.MessageTypeText,
+			Content: "Press Enter to continue or q to stop",
+		})
+	} else {
+		// End of content reached
+		messages = append(messages, shared.Message{
+			Type:    shared.MessageTypeText,
+			Content: "",
+		})
+		messages = append(messages, shared.Message{
+			Type:    shared.MessageTypeText,
+			Content: "End of content. Press Enter to continue",
+		})
+	}
+	
+	return messages, nil
+}
+
+// handlePaginationInput handles input during pagination
+func (ui *BoardUI) handlePaginationInput(input string) ([]shared.Message, error) {
+	input = strings.TrimSpace(input)
+	
+	if input == "q" || input == "quit" {
+		// Exit pagination and return to previous state
+		ui.isShowingPagination = false
+		ui.state = ui.previousState
+		return ui.returnToPreviousState()
+	}
+	
+	// Any other input (including Enter) continues pagination
+	if input == "" || input == "BOARD_CONTINUE" {
+		// Continue to next page
+		ui.paginationIndex += ui.linesPerPage
+		
+		if ui.paginationIndex >= len(ui.currentDisplayLines) {
+			// End of content reached, return to previous state
+			ui.isShowingPagination = false
+			ui.state = ui.previousState
+			return ui.returnToPreviousState()
+		}
+		
+		// Show next page
+		return ui.showCurrentPage()
+	}
+	
+	// Any other input continues pagination
+	ui.paginationIndex += ui.linesPerPage
+	if ui.paginationIndex >= len(ui.currentDisplayLines) {
+		// End of content reached, return to previous state
+		ui.isShowingPagination = false
+		ui.state = ui.previousState
+		return ui.returnToPreviousState()
+	}
+	
+	// Show next page
+	return ui.showCurrentPage()
+}
+
+// returnToPreviousState returns to the appropriate state after pagination
+func (ui *BoardUI) returnToPreviousState() ([]shared.Message, error) {
+	switch ui.previousState {
+	case BoardStateCategories:
+		return ui.showCategories()
+	case BoardStateMessages:
+		return ui.showMessages()
+	case BoardStateViewMessage:
+		// Return to message list instead of viewing the message again
+		ui.currentMessage = nil
+		return ui.showMessages()
+	default:
+		return ui.showCategories()
+	}
+}
+
