@@ -534,6 +534,30 @@ Object.assign(window.RetroConsole, {
                 cursorCol = this.cursorX + this.cursorPos;
                 cursorRow = this.cursorY;
                 // console.log(`[CHESS-DEBUG] Cursor position: cursorX=${this.cursorX}, cursorPos=${this.cursorPos}, cursorCol=${cursorCol}, cursorRow=${cursorRow}`);
+            } else if (this.inputMode === 9 /* InputModeBoard */) { // BOARD MODE
+                // In board mode: Similar to normal mode but with bounds checking and auto-scroll
+                const promptLength = this.runMode ? 0 : this.promptSymbol.length;
+                cursorCol = (promptLength + this.cursorPos) % CFG.TEXT_COLS;
+                let calculatedRow = inputStartRow + Math.floor((promptLength + this.cursorPos) / CFG.TEXT_COLS);
+                
+                // Check if cursor would exceed screen bounds and auto-scroll if needed
+                const maxVisibleRow = CFG.TEXT_ROWS - 1;
+                if (calculatedRow >= maxVisibleRow) {
+                    // Force scroll up to keep cursor visible
+                    const excessRows = calculatedRow - maxVisibleRow + 1;
+                    // Directly remove excess lines from the top
+                    for (let i = 0; i < excessRows; i++) {
+                        if (this.lines.length > 0) {
+                            this.lines.shift();
+                            if (this.inverseLines.length > 0) {
+                                this.inverseLines.shift();
+                            }
+                        }
+                    }
+                    // Recalculate after scrolling
+                    calculatedRow = maxVisibleRow;
+                }
+                cursorRow = calculatedRow;
             } else {
                 // In normal mode: Calculate cursor position based on input
                 const promptLength = this.runMode ? 0 : this.promptSymbol.length;
@@ -1033,7 +1057,7 @@ Object.assign(window.RetroConsole, {
                             this.inputMode = 5;
                             break;
                         case 'BOARD':
-                            this.inputMode = 6;
+                            this.inputMode = 9;
                             break;
                         default:
                             this.inputMode = 0; // Default to OS_SHELL if unknown

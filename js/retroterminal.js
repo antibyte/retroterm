@@ -472,7 +472,7 @@ function setupInputHandling() {
                     }
 
                     // Check if we are in board mode. Handle empty Enter specially for message viewing.
-                    if (window.RetroConsole && window.RetroConsole.inputMode === 6 /* InputModeBoard */) {
+                    if (window.RetroConsole && window.RetroConsole.inputMode === 9 /* InputModeBoard */) {
                         const originalInput = window.RetroConsole.input;
                         const trimmedInput = originalInput.trim();
                         
