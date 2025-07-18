@@ -32,6 +32,11 @@ type BoardUI struct {
 	newMessageContent string
 	compositionStep   int // 0=subject, 1=content, 2=confirm
 	
+	// Reply composition state
+	newReplySubject string
+	newReplyContent string
+	replyToMessage  *BoardMessage
+	
 	// Pagination state
 	currentDisplayLines []string
 	paginationIndex     int
@@ -50,6 +55,9 @@ const (
 	BoardStateNewMessage
 	BoardStateNewMessageContent
 	BoardStateNewMessageConfirm
+	BoardStateNewReply
+	BoardStateNewReplyContent
+	BoardStateNewReplyConfirm
 	BoardStatePagination
 )
 
@@ -99,6 +107,12 @@ func (ui *BoardUI) ProcessInput(input string) ([]shared.Message, error) {
 		return ui.handleNewMessageContentInput(input)
 	case BoardStateNewMessageConfirm:
 		return ui.handleNewMessageConfirmInput(input)
+	case BoardStateNewReply:
+		return ui.handleNewReplySubjectInput(input)
+	case BoardStateNewReplyContent:
+		return ui.handleNewReplyContentInput(input)
+	case BoardStateNewReplyConfirm:
+		return ui.handleNewReplyConfirmInput(input)
 	default:
 		return ui.showCategories()
 	}
@@ -281,7 +295,24 @@ func (ui *BoardUI) showMessage() ([]shared.Message, error) {
 	
 	ui.state = BoardStateViewMessage
 	
-	lines := ui.manager.FormatMessage(*ui.currentMessage, ui.terminalWidth)
+	// Load the message with replies
+	messageWithReplies, err := ui.manager.GetMessageWithReplies(ui.currentMessage.ID)
+	if err != nil {
+		return []shared.Message{{
+			Type:    shared.MessageTypeText,
+			Content: fmt.Sprintf("Error loading message: %v", err),
+		}}, err
+	}
+	
+	lines := ui.manager.FormatMessage(*messageWithReplies, ui.terminalWidth)
+	
+	// Add reply option for non-guests
+	if !ui.isGuest {
+		lines = append(lines, "Enter 'r' to reply, or any other key to go back.")
+	} else {
+		lines = append(lines, "Press any key to go back.")
+	}
+	lines = append(lines, "")
 	
 	// Use pagination if content is too long
 	return ui.showWithPagination(lines, BoardStateViewMessage)
@@ -289,7 +320,20 @@ func (ui *BoardUI) showMessage() ([]shared.Message, error) {
 
 // handleViewMessageInput handles input when viewing a single message
 func (ui *BoardUI) handleViewMessageInput(input string) ([]shared.Message, error) {
-	// ANY input returns to message list
+	input = strings.TrimSpace(input)
+	
+	// Check if user wants to reply
+	if input == "r" || input == "reply" {
+		if ui.isGuest {
+			return []shared.Message{{
+				Type:    shared.MessageTypeText,
+				Content: "Sorry, guests cannot post replies. Please log in to reply.",
+			}}, nil
+		}
+		return ui.startNewReply()
+	}
+	
+	// ANY other input returns to message list
 	// This includes empty input, BOARD_CONTINUE signal, and any other input
 	ui.currentMessage = nil
 	return ui.showMessages()
@@ -601,5 +645,181 @@ func (ui *BoardUI) returnToPreviousState() ([]shared.Message, error) {
 	default:
 		return ui.showCategories()
 	}
+}
+
+// startNewReply starts the reply composition process
+func (ui *BoardUI) startNewReply() ([]shared.Message, error) {
+	ui.state = BoardStateNewReply
+	ui.replyToMessage = ui.currentMessage
+	ui.newReplySubject = ""
+	ui.newReplyContent = ""
+	
+	// Default reply subject
+	defaultSubject := ui.currentMessage.Subject
+	if !strings.HasPrefix(defaultSubject, "Re: ") {
+		defaultSubject = "Re: " + defaultSubject
+	}
+	
+	return []shared.Message{
+		{Type: shared.MessageTypeText, Content: ""},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("top")},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(centerPad("New Reply", CONTENT_WIDTH))},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("middle")},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Replying to: %s", ui.currentMessage.Subject))},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Original author: %s", ui.currentMessage.Author))},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Reply author: %s", ui.username))},
+		{Type: shared.MessageTypeText, Content: formatFrameLine("")},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Default subject: %s", defaultSubject))},
+		{Type: shared.MessageTypeText, Content: formatFrameLine("Enter reply subject (or press Enter to use default):")},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("bottom")},
+		{Type: shared.MessageTypeText, Content: ""},
+	}, nil
+}
+
+// handleNewReplySubjectInput handles subject input for new replies
+func (ui *BoardUI) handleNewReplySubjectInput(input string) ([]shared.Message, error) {
+	if input == "q" || input == "quit" {
+		return ui.showMessage()
+	}
+	
+	subject := strings.TrimSpace(input)
+	if subject == "" {
+		// Use default subject
+		defaultSubject := ui.replyToMessage.Subject
+		if !strings.HasPrefix(defaultSubject, "Re: ") {
+			defaultSubject = "Re: " + defaultSubject
+		}
+		ui.newReplySubject = defaultSubject
+	} else {
+		ui.newReplySubject = subject
+	}
+	
+	ui.state = BoardStateNewReplyContent
+	
+	return []shared.Message{
+		{Type: shared.MessageTypeText, Content: ""},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("top")},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(centerPad("New Reply", CONTENT_WIDTH))},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("middle")},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Replying to: %s", ui.replyToMessage.Subject))},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Original author: %s", ui.replyToMessage.Author))},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Reply author: %s", ui.username))},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(fmt.Sprintf("Reply subject: %s", ui.newReplySubject))},
+		{Type: shared.MessageTypeText, Content: formatFrameLine("")},
+		{Type: shared.MessageTypeText, Content: formatFrameLine("Enter reply content (type 'END' on a new line to finish):")},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("bottom")},
+		{Type: shared.MessageTypeText, Content: ""},
+	}, nil
+}
+
+// handleNewReplyContentInput handles content input for new replies
+func (ui *BoardUI) handleNewReplyContentInput(input string) ([]shared.Message, error) {
+	if input == "q" || input == "quit" {
+		return ui.showMessage()
+	}
+	
+	if strings.ToUpper(strings.TrimSpace(input)) == "END" {
+		if strings.TrimSpace(ui.newReplyContent) == "" {
+			return []shared.Message{{
+				Type:    shared.MessageTypeText,
+				Content: "Reply content cannot be empty. Continue typing or 'q' to cancel.",
+			}}, nil
+		}
+		
+		ui.state = BoardStateNewReplyConfirm
+		return ui.showReplyConfirmation()
+	}
+	
+	// Append the line to the content
+	if ui.newReplyContent == "" {
+		ui.newReplyContent = input
+	} else {
+		ui.newReplyContent += "\n" + input
+	}
+	
+	return []shared.Message{{
+		Type:    shared.MessageTypeText,
+		Content: "> " + input,
+	}}, nil
+}
+
+// showReplyConfirmation shows the reply confirmation screen
+func (ui *BoardUI) showReplyConfirmation() ([]shared.Message, error) {
+	contentLines := wrapText(ui.newReplyContent, 72)
+	
+	lines := []string{}
+	lines = append(lines, "")
+	lines = append(lines, createFrameBorder("top"))
+	lines = append(lines, formatFrameLine(centerPad("Reply Preview", CONTENT_WIDTH)))
+	lines = append(lines, createFrameBorder("middle"))
+	lines = append(lines, formatFrameLine(fmt.Sprintf("Replying to: %s", ui.replyToMessage.Subject)))
+	lines = append(lines, formatFrameLine(fmt.Sprintf("From: %s Date: %s", 
+		ui.username, time.Now().Format("2006-01-02 15:04:05"))))
+	lines = append(lines, formatFrameLine(fmt.Sprintf("Subject: %s", ui.newReplySubject)))
+	lines = append(lines, createFrameBorder("middle"))
+	
+	for _, line := range contentLines {
+		lines = append(lines, formatFrameLine(line))
+	}
+	
+	lines = append(lines, createFrameBorder("bottom"))
+	lines = append(lines, "")
+	lines = append(lines, "Send this reply? (y/n)")
+	lines = append(lines, "")
+	
+	// Use pagination if content is too long
+	return ui.showWithPagination(lines, BoardStateNewReplyConfirm)
+}
+
+// handleNewReplyConfirmInput handles confirmation input for new replies
+func (ui *BoardUI) handleNewReplyConfirmInput(input string) ([]shared.Message, error) {
+	input = strings.ToLower(strings.TrimSpace(input))
+	
+	switch input {
+	case "y", "yes":
+		return ui.sendReply()
+	case "n", "no", "q", "quit":
+		return ui.showMessage()
+	default:
+		return []shared.Message{{
+			Type:    shared.MessageTypeText,
+			Content: "Please enter 'y' to send or 'n' to cancel.",
+		}}, nil
+	}
+}
+
+// sendReply sends the composed reply
+func (ui *BoardUI) sendReply() ([]shared.Message, error) {
+	err := ui.manager.AddMessageWithParent(ui.currentCategory.ID, &ui.replyToMessage.ID, ui.username, 
+		ui.newReplySubject, ui.newReplyContent, "")
+	
+	if err != nil {
+		logger.Error(logger.AreaGeneral, "Error sending reply: %v", err)
+		return []shared.Message{{
+			Type:    shared.MessageTypeText,
+			Content: fmt.Sprintf("Error sending reply: %v", err),
+		}}, err
+	}
+	
+	// Reset reply state
+	ui.newReplySubject = ""
+	ui.newReplyContent = ""
+	ui.replyToMessage = nil
+	
+	// Show success message and return to message view
+	messages := []shared.Message{
+		{Type: shared.MessageTypeText, Content: ""},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("top")},
+		{Type: shared.MessageTypeText, Content: formatFrameLine(centerPad("SUCCESS", CONTENT_WIDTH))},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("middle")},
+		{Type: shared.MessageTypeText, Content: formatFrameLine("Your reply has been posted successfully!")},
+		{Type: shared.MessageTypeText, Content: createFrameBorder("bottom")},
+		{Type: shared.MessageTypeText, Content: ""},
+		{Type: shared.MessageTypeText, Content: "Press Enter to continue..."},
+	}
+	
+	// Return to message view
+	ui.state = BoardStateViewMessage
+	return messages, nil
 }
 
