@@ -3,8 +3,11 @@ package board
 import (
 	"database/sql"
 	"fmt"
+	"html"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/antibyte/retroterm/pkg/logger"
 )
@@ -34,14 +37,48 @@ type BoardMessage struct {
 	IsReply    bool      `json:"is_reply"`
 }
 
+// SecurityConfig contains security limits and settings
+type SecurityConfig struct {
+	MaxAuthorLength      int
+	MaxSubjectLength     int
+	MaxContentLength     int
+	MaxRepliesPerMessage int
+	RateLimitPerMinute   int
+	EnableContentSanitization bool
+}
+
+// DefaultSecurityConfig returns default security settings
+func DefaultSecurityConfig() SecurityConfig {
+	return SecurityConfig{
+		MaxAuthorLength:      100,
+		MaxSubjectLength:     200,
+		MaxContentLength:     50000,
+		MaxRepliesPerMessage: 100,
+		RateLimitPerMinute:   10,
+		EnableContentSanitization: true,
+	}
+}
+
 // BoardManager manages the message board system
 type BoardManager struct {
-	db *sql.DB
+	db     *sql.DB
+	config SecurityConfig
 }
 
 // NewBoardManager creates a new board manager
 func NewBoardManager(db *sql.DB) *BoardManager {
-	return &BoardManager{db: db}
+	return &BoardManager{
+		db:     db,
+		config: DefaultSecurityConfig(),
+	}
+}
+
+// NewBoardManagerWithConfig creates a new board manager with custom security config
+func NewBoardManagerWithConfig(db *sql.DB, config SecurityConfig) *BoardManager {
+	return &BoardManager{
+		db:     db,
+		config: config,
+	}
 }
 
 // migrateDatabase handles database schema migrations
@@ -284,9 +321,9 @@ func (bm *BoardManager) AddMessage(categoryID int, author, subject, content, ipA
 	return bm.AddMessageWithParent(categoryID, nil, author, subject, content, ipAddress)
 }
 
-// AddMessageWithParent adds a new message or reply to a category
-func (bm *BoardManager) AddMessageWithParent(categoryID int, parentID *int, author, subject, content, ipAddress string) error {
-	// Validate input
+// ValidateInput validates and sanitizes user input
+func (bm *BoardManager) ValidateInput(author, subject, content string) error {
+	// Check for empty input
 	if strings.TrimSpace(author) == "" {
 		return fmt.Errorf("author cannot be empty")
 	}
@@ -296,6 +333,130 @@ func (bm *BoardManager) AddMessageWithParent(categoryID int, parentID *int, auth
 	if strings.TrimSpace(content) == "" {
 		return fmt.Errorf("content cannot be empty")
 	}
+	
+	// Check length limits
+	if len(author) > bm.config.MaxAuthorLength {
+		return fmt.Errorf("author name too long (max %d characters)", bm.config.MaxAuthorLength)
+	}
+	if len(subject) > bm.config.MaxSubjectLength {
+		return fmt.Errorf("subject too long (max %d characters)", bm.config.MaxSubjectLength)
+	}
+	if len(content) > bm.config.MaxContentLength {
+		return fmt.Errorf("content too long (max %d characters)", bm.config.MaxContentLength)
+	}
+	
+	// Check for malicious content
+	if containsMaliciousContent(author) {
+		return fmt.Errorf("author name contains forbidden characters")
+	}
+	if containsMaliciousContent(subject) {
+		return fmt.Errorf("subject contains forbidden characters")
+	}
+	if containsMaliciousContent(content) {
+		return fmt.Errorf("content contains forbidden characters")
+	}
+	
+	return nil
+}
+
+// SanitizeContent sanitizes user content for safe display
+func (bm *BoardManager) SanitizeContent(content string) string {
+	if !bm.config.EnableContentSanitization {
+		return content
+	}
+	
+	// Remove control characters except newline, carriage return, and tab
+	content = strings.Map(func(r rune) rune {
+		if r < 32 && r != 10 && r != 13 && r != 9 {
+			return -1
+		}
+		return r
+	}, content)
+	
+	// Escape HTML entities
+	content = html.EscapeString(content)
+	
+	// Remove null bytes
+	content = strings.ReplaceAll(content, "\x00", "")
+	
+	return content
+}
+
+// containsMaliciousContent checks for potentially malicious content
+func containsMaliciousContent(content string) bool {
+	// Check for null bytes
+	if strings.Contains(content, "\x00") {
+		return true
+	}
+	
+	// Check for excessive control characters
+	controlCharCount := 0
+	for _, r := range content {
+		if unicode.IsControl(r) && r != '\n' && r != '\r' && r != '\t' {
+			controlCharCount++
+			if controlCharCount > 10 {
+				return true
+			}
+		}
+	}
+	
+	// Check for SQL injection patterns (defense in depth)
+	sqlPatterns := []string{
+		"union select",
+		"drop table",
+		"delete from",
+		"insert into",
+		"update set",
+		"exec ",
+		"execute ",
+	}
+	
+	lowerContent := strings.ToLower(content)
+	for _, pattern := range sqlPatterns {
+		if strings.Contains(lowerContent, pattern) {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// ValidateIPAddress validates IP address format
+func ValidateIPAddress(ipAddress string) error {
+	if ipAddress == "" {
+		return nil // Empty IP is allowed
+	}
+	
+	// Simple IP validation regex
+	ipv4Pattern := `^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$`
+	ipv6Pattern := `^(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$`
+	
+	if matched, _ := regexp.MatchString(ipv4Pattern, ipAddress); matched {
+		return nil
+	}
+	if matched, _ := regexp.MatchString(ipv6Pattern, ipAddress); matched {
+		return nil
+	}
+	
+	return fmt.Errorf("invalid IP address format")
+}
+
+// AddMessageWithParent adds a new message or reply to a category
+func (bm *BoardManager) AddMessageWithParent(categoryID int, parentID *int, author, subject, content, ipAddress string) error {
+	// Validate input
+	if err := bm.ValidateInput(author, subject, content); err != nil {
+		return err
+	}
+	
+	// Validate IP address
+	if err := ValidateIPAddress(ipAddress); err != nil {
+		return fmt.Errorf("invalid IP address: %v", err)
+	}
+	
+	// Sanitize content
+	author = bm.SanitizeContent(author)
+	subject = bm.SanitizeContent(subject)
+	content = bm.SanitizeContent(content)
 	
 	// Check if category exists
 	var count int
@@ -384,16 +545,17 @@ func (bm *BoardManager) GetMessageWithReplies(messageID int) (*BoardMessage, err
 	return &msg, nil
 }
 
-// GetReplies returns all replies to a message
+// GetReplies returns all replies to a message (with security limits)
 func (bm *BoardManager) GetReplies(messageID int) ([]BoardMessage, error) {
 	query := `
 		SELECT id, category_id, parent_id, author, subject, content, created_at, ip_address
 		FROM board_messages
 		WHERE parent_id = ?
 		ORDER BY created_at ASC
+		LIMIT ?
 	`
 	
-	rows, err := bm.db.Query(query, messageID)
+	rows, err := bm.db.Query(query, messageID, bm.config.MaxRepliesPerMessage)
 	if err != nil {
 		return nil, err
 	}
@@ -689,12 +851,21 @@ func wrapText(text string, width int) []string {
 
 // CreateCategory creates a new category (admin function)
 func (bm *BoardManager) CreateCategory(name, title, description, createdBy string) error {
-	if strings.TrimSpace(name) == "" {
-		return fmt.Errorf("category name cannot be empty")
+	// Validate input
+	if err := bm.ValidateInput(createdBy, name, title); err != nil {
+		return err
 	}
-	if strings.TrimSpace(title) == "" {
-		return fmt.Errorf("category title cannot be empty")
+	
+	// Additional validation for category-specific fields
+	if len(description) > bm.config.MaxContentLength {
+		return fmt.Errorf("description too long (max %d characters)", bm.config.MaxContentLength)
 	}
+	
+	// Sanitize input
+	name = bm.SanitizeContent(name)
+	title = bm.SanitizeContent(title)
+	description = bm.SanitizeContent(description)
+	createdBy = bm.SanitizeContent(createdBy)
 	
 	// Check if category already exists
 	var count int
