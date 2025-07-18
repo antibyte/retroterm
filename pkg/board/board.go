@@ -813,40 +813,56 @@ func truncateString(text string, maxLen int) string {
 	return text[:maxLen-3] + "..."
 }
 
-// wrapText wraps text to fit within a given width
+// wrapText wraps text to fit within a given width, preserving explicit line breaks
 func wrapText(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}
 	}
 	
-	words := strings.Fields(text)
-	if len(words) == 0 {
+	if text == "" {
 		return []string{""}
 	}
 	
-	lines := []string{}
-	currentLine := ""
+	// Split text by explicit line breaks first
+	paragraphs := strings.Split(text, "\n")
+	var allLines []string
 	
-	for _, word := range words {
-		if len(currentLine)+len(word)+1 <= width {
-			if currentLine == "" {
-				currentLine = word
+	for _, paragraph := range paragraphs {
+		if paragraph == "" {
+			// Preserve empty lines
+			allLines = append(allLines, "")
+			continue
+		}
+		
+		// Wrap each paragraph
+		words := strings.Fields(paragraph)
+		if len(words) == 0 {
+			allLines = append(allLines, "")
+			continue
+		}
+		
+		currentLine := ""
+		for _, word := range words {
+			if len(currentLine)+len(word)+1 <= width {
+				if currentLine == "" {
+					currentLine = word
+				} else {
+					currentLine += " " + word
+				}
 			} else {
-				currentLine += " " + word
+				if currentLine != "" {
+					allLines = append(allLines, currentLine)
+				}
+				currentLine = word
 			}
-		} else {
-			if currentLine != "" {
-				lines = append(lines, currentLine)
-			}
-			currentLine = word
+		}
+		
+		if currentLine != "" {
+			allLines = append(allLines, currentLine)
 		}
 	}
 	
-	if currentLine != "" {
-		lines = append(lines, currentLine)
-	}
-	
-	return lines
+	return allLines
 }
 
 // CreateCategory creates a new category (admin function)
