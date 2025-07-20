@@ -5,7 +5,37 @@
 
 window.FullscreenManager = {
     isFullscreen: false,
-    autoFullscreenOnStart: true, // Set to false to disable auto-fullscreen
+    autoFullscreenOnStart: false, // Disabled - using doubleclick instead
+    
+    // Doubleclick activation
+    doubleClickActivation: {
+        enabled: true,
+        clickTimeout: 500, // milliseconds between clicks
+        lastClick: 0
+    },
+    
+    // Handle doubleclick activation
+    handleDoubleClick: function(event) {
+        if (!this.doubleClickActivation.enabled) {
+            return false;
+        }
+        
+        const now = Date.now();
+        const timeSinceLastClick = now - this.doubleClickActivation.lastClick;
+        
+        console.log('[FULLSCREEN] Click detected, time since last:', timeSinceLastClick + 'ms');
+        
+        if (timeSinceLastClick < this.doubleClickActivation.clickTimeout) {
+            console.log('[FULLSCREEN] Doubleclick detected - toggling fullscreen');
+            this.toggle();
+            this.doubleClickActivation.lastClick = 0; // Reset
+            return true;
+        } else {
+            console.log('[FULLSCREEN] First click registered');
+            this.doubleClickActivation.lastClick = now;
+            return false;
+        }
+    },
     
     // Check if fullscreen is supported
     isSupported: function() {
@@ -60,6 +90,10 @@ window.FullscreenManager = {
                     console.log('[FULLSCREEN] Promise resolved - fullscreen activated');
                 }).catch(error => {
                     console.log('[FULLSCREEN] Promise rejected:', error.name, error.message);
+                    // If user gesture required, don't show error - this is expected for auto-activation
+                    if (error.name === 'NotAllowedError') {
+                        console.log('[FULLSCREEN] User gesture required - this is normal for auto-activation');
+                    }
                 });
             } else {
                 console.log('[FULLSCREEN] Non-promise API used');
@@ -68,6 +102,11 @@ window.FullscreenManager = {
             return true;
         } catch (error) {
             console.log('[FULLSCREEN] Error entering fullscreen:', error.name, error.message);
+            // If user gesture required, don't treat as error - this is expected for auto-activation
+            if (error.name === 'NotAllowedError' || error.message.includes('user gesture')) {
+                console.log('[FULLSCREEN] User gesture required - this is normal for auto-activation attempts');
+                return false; // Return false but don't log as error
+            }
             return false;
         }
     },
@@ -133,82 +172,59 @@ window.FullscreenManager = {
             });
         });
         
-        // Add keyboard shortcuts
+        // Add simple keyboard shortcuts
         document.addEventListener('keydown', (event) => {
-            console.log('[FULLSCREEN] Keydown event:', event.key);
-            
             // F11 key - toggle fullscreen
             if (event.key === 'F11') {
                 console.log('[FULLSCREEN] F11 pressed - toggling fullscreen');
                 event.preventDefault();
                 this.toggle();
             }
-            
-            // ESC key - exit fullscreen (only if currently in fullscreen)
-            if (event.key === 'Escape' && this.isFullscreen) {
-                console.log('[FULLSCREEN] ESC pressed - browser will handle exit');
-                // Let browser handle ESC for fullscreen exit naturally
-                // No need to call this.exit() as browser does it automatically
-            }
+            // ESC key - let browser handle normally (exit fullscreen)
+            // No special protection needed
+        });
+        
+        // Add doubleclick listener for fullscreen activation
+        document.addEventListener('click', (event) => {
+            this.handleDoubleClick(event);
         });
         
         console.log('[FULLSCREEN] Manager initialized');
-        console.log('[FULLSCREEN] Auto-fullscreen on start:', this.autoFullscreenOnStart);
+        console.log('[FULLSCREEN] Doubleclick activation:', this.doubleClickActivation.enabled);
         console.log('[FULLSCREEN] API supported:', this.isSupported());
-        
-        // Auto-enter fullscreen on start if enabled
-        if (this.autoFullscreenOnStart) {
-            console.log('[FULLSCREEN] Starting auto-fullscreen setup...');
-            this.requestAutoFullscreen();
-        } else {
-            console.log('[FULLSCREEN] Auto-fullscreen disabled');
-        }
-    },
-    
-    // Request auto-fullscreen with user interaction detection
-    requestAutoFullscreen: function() {
-        console.log('[FULLSCREEN] Starting auto-fullscreen setup...');
-        
-        // If immediate fullscreen fails, wait for first user interaction
-        const autoFullscreenOnInteraction = (event) => {
-            console.log('[FULLSCREEN] User interaction detected:', event.type);
-            
-            // Small delay to ensure the interaction is complete
-            setTimeout(() => {
-                console.log('[FULLSCREEN] Attempting to enter fullscreen...');
-                const success = this.enter();
-                if (success) {
-                    console.log('[FULLSCREEN] Auto-fullscreen activated on user interaction');
-                } else {
-                    console.log('[FULLSCREEN] Failed to enter fullscreen');
-                }
-            }, 100);
-        };
-        
-        // Listen for any user interaction to trigger fullscreen
-        console.log('[FULLSCREEN] Setting up event listeners...');
-        
-        // Test if event listeners are working
-        document.addEventListener('click', (e) => {
-            console.log('[FULLSCREEN] Click detected at:', e.clientX, e.clientY, 'Target:', e.target.tagName);
-        }, { once: false });
-        
-        document.addEventListener('click', autoFullscreenOnInteraction, { once: true });
-        document.addEventListener('keydown', autoFullscreenOnInteraction, { once: true });
-        document.addEventListener('touchstart', autoFullscreenOnInteraction, { once: true });
-        
-        console.log('[FULLSCREEN] Waiting for user interaction to enable auto-fullscreen');
     },
     
     // Show fullscreen status in terminal
     showStatus: function() {
         const status = this.checkState() ? 'ACTIVE' : 'INACTIVE';
-        const message = `Fullscreen Mode: ${status}\\nPress F11 to toggle fullscreen`;
+        const doubleClickStatus = this.doubleClickActivation.enabled ? 'ON' : 'OFF';
+        
+        const message = `Fullscreen Mode: ${status}\\nDoubleclick activation: ${doubleClickStatus}\\nPress F11 to toggle\\nPress ESC to exit (normal browser behavior)\\nDoubleclick anywhere to toggle fullscreen`;
         
         if (window.RetroConsole && typeof window.RetroConsole.print === 'function') {
             window.RetroConsole.print(message);
         } else {
             console.log('[FULLSCREEN] Status:', status);
+            console.log('[FULLSCREEN] Doubleclick activation:', this.doubleClickActivation.enabled);
+        }
+    },
+    
+    // Configure doubleclick activation
+    configureDoubleClick: function(enabled, timeout = 500) {
+        this.doubleClickActivation.enabled = enabled;
+        this.doubleClickActivation.clickTimeout = timeout;
+        this.doubleClickActivation.lastClick = 0; // Reset
+        
+        console.log('[FULLSCREEN] Doubleclick activation configured:', {
+            enabled,
+            timeout
+        });
+        
+        if (window.RetroConsole && typeof window.RetroConsole.print === 'function') {
+            const status = enabled ? 
+                `Doubleclick activation enabled (${timeout}ms timeout)` :
+                'Doubleclick activation disabled';
+            window.RetroConsole.print(`[Fullscreen] ${status}`);
         }
     }
 };
@@ -246,6 +262,27 @@ if (window.RetroConsole) {
                 } else {
                     window.RetroConsole.print('Exit fullscreen failed');
                 }
+            });
+            
+            window.RetroConsole.addCommand('FULLSCREEN DOUBLECLICK', () => {
+                const doubleclick = window.FullscreenManager.doubleClickActivation;
+                if (doubleclick.enabled) {
+                    window.FullscreenManager.configureDoubleClick(false);
+                    window.RetroConsole.print('Doubleclick activation DISABLED');
+                } else {
+                    window.FullscreenManager.configureDoubleClick(true, 500);
+                    window.RetroConsole.print('Doubleclick activation ENABLED - doubleclick anywhere to toggle');
+                }
+            });
+            
+            window.RetroConsole.addCommand('FULLSCREEN DOUBLECLICK ON', () => {
+                window.FullscreenManager.configureDoubleClick(true, 500);
+                window.RetroConsole.print('Doubleclick activation ENABLED - doubleclick anywhere to toggle');
+            });
+            
+            window.RetroConsole.addCommand('FULLSCREEN DOUBLECLICK OFF', () => {
+                window.FullscreenManager.configureDoubleClick(false);
+                window.RetroConsole.print('Doubleclick activation DISABLED');
             });
         }
     });
