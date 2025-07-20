@@ -66,9 +66,17 @@ func (b *TinyBASIC) evalExpression(expr string) (BASICValue, error) {
 	p := &exprParser{src: expr, tb: b}
 	defer p.cleanup() // Return token slice to pool when done
 	
-	err := p.tokenize()
-	if err != nil {
-		return BASICValue{}, WrapError(err, "EXPRESSION", true, 0)
+	// Try to get cached tokens first
+	if cachedTokens, found := b.exprTokenCache.Get(expr); found {
+		p.tokens = cachedTokens
+	} else {
+		// Tokenize and cache the result
+		if err := p.tokenize(); err != nil {
+			return BASICValue{}, WrapError(err, "EXPRESSION", true, 0)
+		}
+		
+		// Cache the tokens for future use
+		b.exprTokenCache.Put(expr, p.tokens)
 	}
 
 	if len(p.tokens) == 0 {
@@ -77,6 +85,7 @@ func (b *TinyBASIC) evalExpression(expr string) (BASICValue, error) {
 
 	// Wir beginnen mit der höchsten Ebene der Auswertung
 	var val BASICValue
+	var err error
 
 	// Für alle Ausdrücke mit parseComparison beginnen
 	// Dies wird automatisch die logischen Operatoren AND/OR behandeln,

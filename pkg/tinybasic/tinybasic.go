@@ -347,6 +347,9 @@ type TinyBASIC struct {
 	sayWaitChan       chan struct{} // Channel für Synchronisation
 	// Index für den Neustart der Sub-Statement-Verarbeitung innerhalb einer Zeile
 	resumeSubStatementIndex int
+	
+	// Expression Token Caching for Performance Optimization
+	exprTokenCache *ExpressionTokenCache // Cache for tokenized expressions
 	// SAY/SAY_DONE Synchronisation mit IDs
 	sayID        int64            // Fortlaufende Nummer für SAY/SAY_DONE (alt)
 	waitingSayID int64            // ID, auf die aktuell gewartet wird (alt)	// INKEY$ Support - Channel-basierte thread-safe Implementierung
@@ -468,6 +471,9 @@ func NewTinyBASIC(osys *tinyos.TinyOS) *TinyBASIC {
 		// Bytecode compilation and execution
 		useBytecode:            true,         // Enable bytecode by default for performance
 		compiledHash:           "",           // No program compiled yet
+		
+		// Expression Token Caching
+		exprTokenCache:         NewExpressionTokenCache(1000, 5*time.Minute), // Cache 1000 expressions for 5 minutes
 	}
 
 	// Seed the random number generator once
