@@ -23,6 +23,7 @@ const config = {
     bundleJsFiles: [
         'config.js',
         'dynamicViewport.js',
+        'fullscreen.js',
         'samInit.js',
         'retrographics.js',
         'spriteManager.js', 

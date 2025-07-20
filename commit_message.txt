@@ -1,3 +1,0 @@
-feat: Update Go dependencies
-
-Updated all Go packages to their latest compatible versions, including a fix for the golang.org/x/net tokenizer vulnerability.

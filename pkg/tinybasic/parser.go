@@ -52,6 +52,15 @@ func (b *TinyBASIC) evalExpression(expr string) (BASICValue, error) {
 		return BASICValue{}, NewBASICError(ErrCategorySyntax, "EXPECTED_EXPRESSION", true, 0)
 	}
 	
+	// Try Expression-Level JIT first (safe, non-invasive)
+	if b.expressionJIT != nil {
+		if result, found := b.expressionJIT.TryEvaluate(expr, b.variables); found {
+			return result, nil
+		}
+		// Record execution for JIT compilation consideration
+		b.expressionJIT.RecordExecution(expr)
+	}
+	
 	// Fast-path optimization for common fractal math patterns
 	if result, found := b.evaluateFastMathPattern(expr); found {
 		return result, nil

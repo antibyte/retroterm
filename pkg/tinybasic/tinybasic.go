@@ -350,6 +350,11 @@ type TinyBASIC struct {
 	
 	// Expression Token Caching for Performance Optimization
 	exprTokenCache *ExpressionTokenCache // Cache for tokenized expressions
+	
+	// JIT Compiler for Hot Loop Optimization
+	jitCompiler   *JITCompiler   // Just-In-Time compiler for performance-critical loops (DISABLED)
+	simpleJIT     *SimpleJIT     // Simple in-memory JIT compiler for better performance (DISABLED)
+	expressionJIT *ExpressionJIT // Safe, non-invasive expression-level JIT compiler
 	// SAY/SAY_DONE Synchronisation mit IDs
 	sayID        int64            // Fortlaufende Nummer für SAY/SAY_DONE (alt)
 	waitingSayID int64            // ID, auf die aktuell gewartet wird (alt)	// INKEY$ Support - Channel-basierte thread-safe Implementierung
@@ -474,6 +479,11 @@ func NewTinyBASIC(osys *tinyos.TinyOS) *TinyBASIC {
 		
 		// Expression Token Caching
 		exprTokenCache:         NewExpressionTokenCache(1000, 5*time.Minute), // Cache 1000 expressions for 5 minutes
+		
+		// JIT Compiler (disabled by default, can be enabled for performance testing)
+		jitCompiler:            NewJITCompiler(), // JIT compiler for hot loop optimization (DISABLED)
+		simpleJIT:              NewSimpleJIT(),  // Simple JIT compiler for better performance (DISABLED)
+		expressionJIT:          NewExpressionJIT(), // Safe expression-level JIT compiler
 	}
 
 	// Seed the random number generator once
@@ -1372,6 +1382,27 @@ func (b *TinyBASIC) executeSingleStatementInternal(statement string, ctx context
 		return physicalNextLine, nil
 	case "HELP":
 		return 0, HandleHelpCommand(args)
+	
+	// JIT Compiler Commands
+	case "JITON":
+		err := b.cmdJITOn(args)
+		return physicalNextLine, err
+	case "JITOFF":
+		err := b.cmdJITOff(args)
+		return physicalNextLine, err
+	case "JITSTATS":
+		err := b.cmdJITStats(args)
+		return physicalNextLine, err
+	case "JITCLEAR":
+		err := b.cmdJITClear(args)
+		return physicalNextLine, err
+	case "JITCONFIG":
+		err := b.cmdJITConfig(args)
+		return physicalNextLine, err
+	case "JITBENCH":
+		err := b.cmdJITBench(args)
+		return physicalNextLine, err
+		
 	case "EXIT", "QUIT":
 		// cmdExit now returns ErrExit. This error will be propagated up.
 		// The Execute function will handle it and inform the terminal handler.
