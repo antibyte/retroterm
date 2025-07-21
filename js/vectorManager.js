@@ -656,6 +656,18 @@ function handleUpdateVector3D(data) {
                     obj.id = `vector_${id}`;
                     obj.originalId = id;
                     obj.shape = shape;
+                } else if (shape === "pyramid") {
+                    // Create pyramid with square base (using scale as base size and height)
+                    obj = createPyramid(scale, scale * 1.5, "square", pos, getBrightnessColor(brightness));
+                    obj.id = `vector_${id}`;
+                    obj.originalId = id;
+                    obj.shape = shape;
+                } else if (shape === "cylinder") {
+                    // Create cylinder with 8 connecting lines (using scale as radius)
+                    obj = createCylinder(scale * 0.6, scale * 1.8, 8, pos, getBrightnessColor(brightness));
+                    obj.id = `vector_${id}`;
+                    obj.originalId = id;
+                    obj.shape = shape;
                 } else {
                     // Default to cube for unknown shapes
                     obj = createTestCube(scale, pos, getBrightnessColor(brightness));
@@ -798,10 +810,166 @@ window.vectorManager = {
     multiplyMatrices,
     updateWorldMatrix, // If external logic modifies obj.transform directly
     handleUpdateVector3D,
-    clearAllVectorObjects3D
+    clearAllVectorObjects3D,
+    createPyramid,
+    createCylinder
 };
 
+// Create pyramid with different base shapes
+function createPyramid(baseScale, height, baseShape, position, color) {
+    const pyramid = {
+        id: 'pyramid_' + objectIdCounter++,
+        type: 'pyramid',
+        vertices: [],
+        edges: [],
+        transform: {
+            translation: { x: position.x, y: position.y, z: position.z },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: baseScale, y: height, z: baseScale }
+        },
+        color: color || '#00FF00',
+        baseShape: baseShape
+    };
 
+    const h = height;
+    const apexY = h / 2;
+    const baseY = -h / 2;
+    
+    // Create vertices based on base shape
+    let baseVertices = [];
+    
+    if (baseShape === 'triangle') {
+        // Triangle base (3 vertices)
+        const r = baseScale / 2;
+        for (let i = 0; i < 3; i++) {
+            const angle = (i * 2 * Math.PI) / 3;
+            baseVertices.push([
+                r * Math.cos(angle),
+                baseY,
+                r * Math.sin(angle)
+            ]);
+        }
+    } else if (baseShape === 'square') {
+        // Square base (4 vertices)
+        const r = baseScale / 2;
+        baseVertices = [
+            [-r, baseY, -r],
+            [ r, baseY, -r],
+            [ r, baseY,  r],
+            [-r, baseY,  r]
+        ];
+    } else if (baseShape === 'pentagon') {
+        // Pentagon base (5 vertices)
+        const r = baseScale / 2;
+        for (let i = 0; i < 5; i++) {
+            const angle = (i * 2 * Math.PI) / 5;
+            baseVertices.push([
+                r * Math.cos(angle),
+                baseY,
+                r * Math.sin(angle)
+            ]);
+        }
+    } else if (baseShape === 'hexagon') {
+        // Hexagon base (6 vertices)
+        const r = baseScale / 2;
+        for (let i = 0; i < 6; i++) {
+            const angle = (i * 2 * Math.PI) / 6;
+            baseVertices.push([
+                r * Math.cos(angle),
+                baseY,
+                r * Math.sin(angle)
+            ]);
+        }
+    }
+
+    // Convert base vertices to proper format and add to pyramid
+    for (let i = 0; i < baseVertices.length; i++) {
+        const v = baseVertices[i];
+        pyramid.vertices.push({ x: v[0], y: v[1], z: v[2] });
+    }
+    
+    // Add apex vertex
+    pyramid.vertices.push({ x: 0, y: apexY, z: 0 });
+    const apexIndex = pyramid.vertices.length - 1;
+
+    // Create edges
+    const numBaseVertices = baseVertices.length;
+    
+    // Base edges (connect base vertices in a loop)
+    for (let i = 0; i < numBaseVertices; i++) {
+        pyramid.edges.push([i, (i + 1) % numBaseVertices]);
+    }
+    
+    // Apex edges (connect each base vertex to apex)
+    for (let i = 0; i < numBaseVertices; i++) {
+        pyramid.edges.push([i, apexIndex]);
+    }
+
+    return pyramid;
+}
+
+// Create cylinder with configurable number of connecting lines
+function createCylinder(radius, height, lineCount, position, color) {
+    const cylinder = {
+        id: 'cylinder_' + objectIdCounter++,
+        type: 'cylinder',
+        vertices: [],
+        edges: [],
+        transform: {
+            translation: { x: position.x, y: position.y, z: position.z },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: radius, y: height, z: radius }
+        },
+        color: color || '#00FF00',
+        radius: radius,
+        height: height,
+        lineCount: lineCount
+    };
+
+    const circleSegments = Math.max(8, Math.min(16, Math.floor(radius * 2))); // Adaptive segment count based on radius
+    const h = height;
+    const topY = h / 2;
+    const bottomY = -h / 2;
+    
+    // Create top circle vertices
+    for (let i = 0; i < circleSegments; i++) {
+        const angle = (i * 2 * Math.PI) / circleSegments;
+        cylinder.vertices.push({
+            x: radius * Math.cos(angle),
+            y: topY,
+            z: radius * Math.sin(angle)
+        });
+    }
+    
+    // Create bottom circle vertices
+    for (let i = 0; i < circleSegments; i++) {
+        const angle = (i * 2 * Math.PI) / circleSegments;
+        cylinder.vertices.push({
+            x: radius * Math.cos(angle),
+            y: bottomY,
+            z: radius * Math.sin(angle)
+        });
+    }
+
+    // Create edges for top circle
+    for (let i = 0; i < circleSegments; i++) {
+        cylinder.edges.push([i, (i + 1) % circleSegments]);
+    }
+    
+    // Create edges for bottom circle
+    for (let i = 0; i < circleSegments; i++) {
+        cylinder.edges.push([circleSegments + i, circleSegments + ((i + 1) % circleSegments)]);
+    }
+    
+    // Create connecting lines between top and bottom circles
+    // Distribute lineCount evenly around the circle
+    for (let i = 0; i < lineCount; i++) {
+        const segmentIndex = Math.floor((i * circleSegments) / lineCount);
+        cylinder.edges.push([segmentIndex, circleSegments + segmentIndex]);
+    }
+
+    return cylinder;
+}
 
 // Make vectorManager globally available
 window.vectorManager = {
@@ -827,5 +995,7 @@ window.vectorManager = {
     multiplyMatrices,
     updateWorldMatrix,
     handleUpdateVector3D,
-    clearAllVectorObjects3D
+    clearAllVectorObjects3D,
+    createPyramid,
+    createCylinder
 };

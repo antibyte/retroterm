@@ -83,12 +83,14 @@ type Message struct {
 	BaseSpriteIDs []int  `json:"baseSpriteIds,omitempty"`
 
 	// Vector-spezifische Felder (Type == MessageTypeVector)
-	Shape string `json:"shape,omitempty"` // "cube", "pyramid", "sphere"
+	Shape string `json:"shape,omitempty"` // "cube", "pyramid", "sphere", "cylinder", "cone"
 	// Position und Rotation für Vektoren als Maps, um {x,y,z} Strukturen abzubilden
 	Position    map[string]float64 `json:"position,omitempty"`
 	VecRotation map[string]float64 `json:"vecRotation,omitempty"` // Eigener Name, um Kollision mit Sprite-Rotation zu vermeiden
 	Scale       interface{}        `json:"scale,omitempty"`       // Kann Zahl oder {x,y,z} Map sein
 	Brightness  int                `json:"brightness,omitempty"`
+	// Für erweiterte Shape-Parameter (Pyramid baseShape, Cylinder radius/height, etc.)
+	CustomData map[string]interface{} `json:"customData,omitempty"`
 
 	// Für INPUT (Type == MessageTypeInput)
 	InputStr  string `json:"input,omitempty"` // "input" ist der Feldname im Frontend

@@ -21,9 +21,11 @@ type VectorShape string
 
 // Supported 3D shapes
 const (
-	ShapeCube    VectorShape = "cube"
-	ShapePyramid VectorShape = "pyramid"
-	ShapeSphere  VectorShape = "sphere"
+	ShapeCube       VectorShape = "cube"
+	ShapePyramid    VectorShape = "pyramid"
+	ShapeSphere     VectorShape = "sphere"
+	ShapeCylinder   VectorShape = "cylinder"
+	ShapeCone       VectorShape = "cone"
 )
 
 // Helper function to send vector commands
@@ -364,6 +366,275 @@ func degToRad(deg float64) float64 {
 	return deg * 0.017453292519943295 // deg * (π / 180)
 }
 
+// cmdPyramid implements the PYRAMID command:
+// PYRAMID id, base, x, y, z, rotX, rotY, rotZ, scale, height, [brightness]
+// Creates a pyramid with different base shapes: "square", "triangle", "pentagon", "hexagon"
+func (b *TinyBASIC) cmdPyramid(args string) error {
+	params := splitRespectingParentheses(strings.TrimSpace(args))
+	if len(params) < 10 || len(params) > 11 {
+		return NewBASICError(ErrCategorySyntax, "INVALID_PARAMETER_COUNT", b.currentLine == 0, b.currentLine).
+			WithCommand("PYRAMID").
+			WithUsageHint("PYRAMID id, base, x, y, z, rotX, rotY, rotZ, scale, height, [brightness]")
+	}
+
+	// Check id
+	idExpr := strings.TrimSpace(params[0])
+	idVal, err := b.evalExpression(idExpr)
+	if err != nil {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_EXPRESSION", b.currentLine == 0, b.currentLine).
+			WithCommand("PYRAMID").
+			WithUsageHint("Error in pyramid ID parameter")
+	}
+	id, err := basicValueToInt(idVal)
+	if err != nil {
+		return NewBASICError(ErrCategoryEvaluation, "TYPE_MISMATCH", b.currentLine == 0, b.currentLine).
+			WithCommand("PYRAMID").
+			WithUsageHint("Pyramid ID must be numeric")
+	}
+	if id < 0 || id > MaxVectorID {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_PARAMETER_VALUE", b.currentLine == 0, b.currentLine).
+			WithCommand("PYRAMID").
+			WithUsageHint(fmt.Sprintf("Pyramid ID must be between 0 and %d", MaxVectorID))
+	}
+
+	// Check base shape
+	baseExpr := strings.TrimSpace(params[1])
+	baseVal, err := b.evalExpression(baseExpr)
+	if err != nil {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_EXPRESSION", b.currentLine == 0, b.currentLine).
+			WithCommand("PYRAMID").
+			WithUsageHint("Error in base shape parameter")
+	}
+	if baseVal.IsNumeric {
+		return NewBASICError(ErrCategoryEvaluation, "TYPE_MISMATCH", b.currentLine == 0, b.currentLine).
+			WithCommand("PYRAMID").
+			WithUsageHint("Base shape must be a string: 'square', 'triangle', 'pentagon', 'hexagon'")
+	}
+	baseShape := strings.ToLower(strings.Trim(baseVal.StrValue, "\"' \t"))
+
+	// Validate base shape
+	validBases := map[string]bool{
+		"square":   true,
+		"triangle": true,
+		"pentagon": true,
+		"hexagon":  true,
+	}
+	if !validBases[baseShape] {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_PARAMETER_VALUE", b.currentLine == 0, b.currentLine).
+			WithCommand("PYRAMID").
+			WithUsageHint("Base shape must be 'square', 'triangle', 'pentagon', or 'hexagon'")
+	}
+
+	// Position X,Y,Z
+	posX, err := b.evalNumericParam(params[2], "x position")
+	if err != nil {
+		return err
+	}
+	posY, err := b.evalNumericParam(params[3], "y position")
+	if err != nil {
+		return err
+	}
+	posZ, err := b.evalNumericParam(params[4], "z position")
+	if err != nil {
+		return err
+	}
+
+	// Rotation X,Y,Z
+	rotX, err := b.evalNumericParam(params[5], "x rotation")
+	if err != nil {
+		return err
+	}
+	rotY, err := b.evalNumericParam(params[6], "y rotation")
+	if err != nil {
+		return err
+	}
+	rotZ, err := b.evalNumericParam(params[7], "z rotation")
+	if err != nil {
+		return err
+	}
+
+	// Scale
+	scale, err := b.evalNumericParam(params[8], "scale")
+	if err != nil {
+		return err
+	}
+
+	// Height
+	height, err := b.evalNumericParam(params[9], "height")
+	if err != nil {
+		return err
+	}
+
+	// Optional brightness check
+	brightness := DefaultBrightness
+	if len(params) >= 11 {
+		brightnessExpr := strings.TrimSpace(params[10])
+		brightnessVal, err := b.evalExpression(brightnessExpr)
+		if err != nil {
+			return NewBASICError(ErrCategoryEvaluation, "VECTOR_BRIGHTNESS_PARAM_ERROR", b.currentLine == 0, b.currentLine).
+				WithCommand("PYRAMID").
+				WithUsageHint("Brightness parameter must be a valid numeric expression")
+		}
+		if !brightnessVal.IsNumeric {
+			return NewBASICError(ErrCategoryEvaluation, "VECTOR_BRIGHTNESS_TYPE_ERROR", b.currentLine == 0, b.currentLine).
+				WithCommand("PYRAMID").
+				WithUsageHint("Brightness must be numeric between 0-15")
+		}
+		brightness = int(brightnessVal.NumValue)
+		if brightness < 0 || brightness > MaxBrightness {
+			brightness = MaxBrightness // Limit to valid range
+		}
+	}
+
+	b.sendVectorCommand(shared.Message{
+		Type:    shared.MessageTypeVector,
+		Command: "UPDATE_VECTOR",
+		ID:      id,
+		Shape:   "pyramid", // string
+		Position: map[string]float64{
+			"x": posX,
+			"y": posY,
+			"z": posZ,
+		},
+		VecRotation: map[string]float64{
+			"x": degToRad(rotX),
+			"y": degToRad(rotY),
+			"z": degToRad(rotZ),
+		},
+		Scale:      scale,
+		Visible:    boolPtr(true),
+		Brightness: brightness,
+		// Store base shape and height as custom parameters
+		CustomData: map[string]interface{}{
+			"baseShape": baseShape,
+			"height":    height,
+		},
+	})
+
+	return nil
+}
+
+// cmdCylinder implements the CYLINDER command:
+// CYLINDER id, x, y, z, rotX, rotY, rotZ, radius, height, [brightness]
+// Creates a cylinder with 8 connecting lines between top and bottom circles
+func (b *TinyBASIC) cmdCylinder(args string) error {
+	params := splitRespectingParentheses(strings.TrimSpace(args))
+	if len(params) < 9 || len(params) > 10 {
+		return NewBASICError(ErrCategorySyntax, "INVALID_PARAMETER_COUNT", b.currentLine == 0, b.currentLine).
+			WithCommand("CYLINDER").
+			WithUsageHint("CYLINDER id, x, y, z, rotX, rotY, rotZ, radius, height, [brightness]")
+	}
+
+	// Check id
+	idExpr := strings.TrimSpace(params[0])
+	idVal, err := b.evalExpression(idExpr)
+	if err != nil {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_EXPRESSION", b.currentLine == 0, b.currentLine).
+			WithCommand("CYLINDER").
+			WithUsageHint("Error in cylinder ID parameter")
+	}
+	id, err := basicValueToInt(idVal)
+	if err != nil {
+		return NewBASICError(ErrCategoryEvaluation, "TYPE_MISMATCH", b.currentLine == 0, b.currentLine).
+			WithCommand("CYLINDER").
+			WithUsageHint("Cylinder ID must be numeric")
+	}
+	if id < 0 || id > MaxVectorID {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_PARAMETER_VALUE", b.currentLine == 0, b.currentLine).
+			WithCommand("CYLINDER").
+			WithUsageHint(fmt.Sprintf("Cylinder ID must be between 0 and %d", MaxVectorID))
+	}
+
+	// Position X,Y,Z
+	posX, err := b.evalNumericParam(params[1], "x position")
+	if err != nil {
+		return err
+	}
+	posY, err := b.evalNumericParam(params[2], "y position")
+	if err != nil {
+		return err
+	}
+	posZ, err := b.evalNumericParam(params[3], "z position")
+	if err != nil {
+		return err
+	}
+
+	// Rotation X,Y,Z
+	rotX, err := b.evalNumericParam(params[4], "x rotation")
+	if err != nil {
+		return err
+	}
+	rotY, err := b.evalNumericParam(params[5], "y rotation")
+	if err != nil {
+		return err
+	}
+	rotZ, err := b.evalNumericParam(params[6], "z rotation")
+	if err != nil {
+		return err
+	}
+
+	// Radius
+	radius, err := b.evalNumericParam(params[7], "radius")
+	if err != nil {
+		return err
+	}
+
+	// Height
+	height, err := b.evalNumericParam(params[8], "height")
+	if err != nil {
+		return err
+	}
+
+	// Optional brightness check
+	brightness := DefaultBrightness
+	if len(params) >= 10 {
+		brightnessExpr := strings.TrimSpace(params[9])
+		brightnessVal, err := b.evalExpression(brightnessExpr)
+		if err != nil {
+			return NewBASICError(ErrCategoryEvaluation, "VECTOR_BRIGHTNESS_PARAM_ERROR", b.currentLine == 0, b.currentLine).
+				WithCommand("CYLINDER").
+				WithUsageHint("Brightness parameter must be a valid numeric expression")
+		}
+		if !brightnessVal.IsNumeric {
+			return NewBASICError(ErrCategoryEvaluation, "VECTOR_BRIGHTNESS_TYPE_ERROR", b.currentLine == 0, b.currentLine).
+				WithCommand("CYLINDER").
+				WithUsageHint("Brightness must be numeric between 0-15")
+		}
+		brightness = int(brightnessVal.NumValue)
+		if brightness < 0 || brightness > MaxBrightness {
+			brightness = MaxBrightness // Limit to valid range
+		}
+	}
+
+	b.sendVectorCommand(shared.Message{
+		Type:    shared.MessageTypeVector,
+		Command: "UPDATE_VECTOR",
+		ID:      id,
+		Shape:   "cylinder", // string
+		Position: map[string]float64{
+			"x": posX,
+			"y": posY,
+			"z": posZ,
+		},
+		VecRotation: map[string]float64{
+			"x": degToRad(rotX),
+			"y": degToRad(rotY),
+			"z": degToRad(rotZ),
+		},
+		Scale:      1.0, // Not used for cylinder, use radius/height instead
+		Visible:    boolPtr(true),
+		Brightness: brightness,
+		// Store radius and height as custom parameters
+		CustomData: map[string]interface{}{
+			"radius":     radius,
+			"height":     height,
+			"lineCount":  8, // 8 connecting lines
+		},
+	})
+
+	return nil
+}
+
 // Helper function to handle VECTOR.* commands
 func (b *TinyBASIC) handleVectorCommands(cmd string, args string) error {
 	switch {
@@ -375,9 +646,13 @@ func (b *TinyBASIC) handleVectorCommands(cmd string, args string) error {
 		return b.cmdVectorHide(args)
 	case cmd == "VECTOR.SHOW":
 		return b.cmdVectorShow(args)
+	case cmd == "PYRAMID":
+		return b.cmdPyramid(args)
+	case cmd == "CYLINDER":
+		return b.cmdCylinder(args)
 	default:
 		return NewBASICError(ErrCategorySyntax, "UNKNOWN_COMMAND", b.currentLine == 0, b.currentLine).
 			WithCommand(cmd).
-			WithUsageHint("Unknown vector command. Valid commands: VECTOR, VECTOR.SCALE, VECTOR.HIDE, VECTOR.SHOW")
+			WithUsageHint("Unknown vector command. Valid commands: VECTOR, VECTOR.SCALE, VECTOR.HIDE, VECTOR.SHOW, PYRAMID, CYLINDER")
 	}
 }

@@ -1,9 +1,10 @@
 ' 32 fliegende Kugeln und Würfel – Demo
-10 REM 32 Kugeln und Würfel, zufällige Größe, Position, Richtung, Rotation
+10 REM 32 Objekte: Kugeln, Würfel, Pyramiden und Zylinder
 20 CLS
-30 PRINT "VectorBallz Demo: 32 Kugeln und Würfel"
-40 PRINT "--------------------------------------"
-50 WAIT 500
+30 PRINT "VectorBallz Demo: 32 3D-Objekte"
+40 PRINT "Kugeln, Würfel, Pyramiden, Zylinder"
+50 PRINT "-----------------------------------"
+60 WAIT 500
 
 100 REM Konstanten
 110 LET NUM_OBJS = 32
@@ -27,7 +28,7 @@
 290 DIM ROTY(NUM_OBJS)
 300 DIM ROTZ(NUM_OBJS)
 310 DIM ROTS(NUM_OBJS)
-320 DIM IS_SPHERE(NUM_OBJS)
+320 DIM OBJ_TYPE(NUM_OBJS)
 330 DIM COLOR(NUM_OBJS)
 
 400 REM Initialisierung
@@ -43,9 +44,9 @@
 500   LET ROTY(I) = RND(359)
 510   LET ROTZ(I) = RND(359)
 520   LET ROTS(I) = RND(5) + 1
-530   IF RND(2) = 0 THEN LET IS_SPHERE(I) = 1 ELSE LET IS_SPHERE(I) = 0
+530   LET OBJ_TYPE(I) = RND(4)
 540   LET COLOR(I) = RND(13)+2
-550 NEXT I
+560 NEXT I
 
 600 REM Hauptschleife
 610 FOR FRAME = 1 TO 100000
@@ -72,8 +73,11 @@
 790     IF Z(I) > MAXZ THEN LET Z(I) = MAXZ : LET ZS(I) = -ABS(ZS(I))
 800     IF Z(I) < MINZ THEN LET Z(I) = MINZ : LET ZS(I) = ABS(ZS(I))
 
-810     IF IS_SPHERE(I) = 1 THEN VECTOR I, "sphere", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
-830     IF IS_SPHERE(I) = 0 THEN VECTOR I, "cube", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
+810     REM Objekt-Typen: 0=Kugel, 1=Würfel, 2=Pyramide, 3=Zylinder
+820     IF OBJ_TYPE(I) = 0 THEN VECTOR I, "sphere", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
+830     IF OBJ_TYPE(I) = 1 THEN VECTOR I, "cube", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
+840     IF OBJ_TYPE(I) = 2 THEN VECTOR I, "pyramid", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
+850     IF OBJ_TYPE(I) = 3 THEN VECTOR I, "cylinder", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
 860   NEXT I
 870   WAIT DELAY
 880 NEXT FRAME

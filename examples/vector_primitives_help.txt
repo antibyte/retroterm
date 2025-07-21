@@ -1,0 +1,76 @@
+RETROTERM VECTOR GRAPHICS - 3D PRIMITIVES
+==========================================
+
+New 3D primitive commands for TinyBASIC vector graphics system.
+
+PYRAMID COMMAND
+===============
+Syntax: PYRAMID id, base, x, y, z, rotX, rotY, rotZ, scale, height, [brightness]
+
+Parameters:
+- id: Vector object ID (0-255)
+- base: Base shape as string - "triangle", "square", "pentagon", "hexagon"  
+- x, y, z: Position coordinates
+- rotX, rotY, rotZ: Rotation angles in degrees
+- scale: Base size scaling factor
+- height: Pyramid height
+- brightness: Optional brightness level (0-15, default 15)
+
+Examples:
+PYRAMID 1, "square", 0, 0, -20, 0, 0, 0, 20, 25, 15      ' Square base pyramid
+PYRAMID 2, "triangle", 30, 0, -20, 0, 30, 0, 15, 20, 12  ' Triangle base pyramid  
+PYRAMID 3, "pentagon", -30, 5, -15, 45, 0, 0, 18, 30, 10 ' Pentagon base pyramid
+PYRAMID 4, "hexagon", 0, -10, -25, 0, 0, 90, 12, 15, 8   ' Hexagon base pyramid
+
+CYLINDER COMMAND
+================
+Syntax: CYLINDER id, x, y, z, rotX, rotY, rotZ, radius, height, [brightness]
+
+Parameters:
+- id: Vector object ID (0-255)
+- x, y, z: Position coordinates  
+- rotX, rotY, rotZ: Rotation angles in degrees
+- radius: Cylinder radius
+- height: Cylinder height
+- brightness: Optional brightness level (0-15, default 15)
+
+Note: Cylinders automatically have 8 connecting lines between top and bottom circles
+      for improved visual representation.
+
+Examples:
+CYLINDER 1, 0, 0, -20, 0, 0, 0, 10, 25, 15        ' Basic cylinder
+CYLINDER 2, 20, -5, -15, 0, 45, 0, 8, 20, 12      ' Rotated cylinder
+CYLINDER 3, -15, 10, -30, 90, 0, 0, 6, 35, 10     ' Horizontal cylinder
+
+ADVANCED FEATURES
+=================
+
+Pyramid Base Shapes:
+- "triangle": 3-sided pyramid (tetrahedron-style)
+- "square": 4-sided pyramid (classic Egyptian style)
+- "pentagon": 5-sided pyramid
+- "hexagon": 6-sided pyramid
+
+Cylinder Visualization:
+- Top and bottom circles with 16 segments each
+- 8 evenly distributed vertical connecting lines
+- Smooth circular appearance with wireframe structure
+
+Animation Tips:
+- Use SIN() and COS() functions for smooth rotation
+- Vary position parameters for movement effects
+- Combine multiple primitives for complex scenes
+- Use different brightness levels for depth perception
+
+Performance Notes:
+- Pyramids have 4-7 vertices and 7-12 edges depending on base shape
+- Cylinders have 32 vertices and 40 edges (2 circles + 8 connecting lines)
+- Both primitives use efficient wireframe rendering
+- Suitable for real-time animation and interactive scenes
+
+Compatible with all existing VECTOR commands:
+- VECTOR.HIDE id
+- VECTOR.SHOW id  
+- VECTOR.SCALE id, scaleX, scaleY, scaleZ
+
+See pyramid_cylinder_demo.bas for complete working example.
