@@ -74,6 +74,8 @@ const (
 	OP_CIRCLE        // Draw circle
 	OP_SPRITE        // Sprite command
 	OP_VECTOR        // Vector command
+	OP_PYRAMID       // Pyramid command
+	OP_CYLINDER      // Cylinder command
 	OP_SAY           // Say command
 	OP_LOCATE        // Locate cursor
 	OP_COLOR         // Set color
@@ -600,6 +602,18 @@ func (c *BytecodeCompiler) compileStatement(stmt string) error {
 
 	case "VECTOR":
 		return c.compileVector(args)
+
+	case "PYRAMID":
+		return c.compilePyramid(args)
+
+	case "CYLINDER":
+		return c.compileCylinder(args)
+
+	case "VECFLOOR":
+		return c.compileVecFloor(args)
+
+	case "VECNODE":
+		return c.compileVecNode(args)
 
 	case "SAY":
 		return c.compileSay(args)
@@ -1287,6 +1301,82 @@ func (c *BytecodeCompiler) compileVector(args string) error {
 
 	// Emit VECTOR instruction
 	c.Emit(OP_VECTOR)
+	return nil
+}
+
+// compilePyramid compiles PYRAMID statements
+func (c *BytecodeCompiler) compilePyramid(args string) error {
+	if args == "" {
+		return fmt.Errorf("PYRAMID requires arguments")
+	}
+
+	// For PYRAMID, we need to handle variable argument count
+	// Just compile the entire argument string as a single expression for now
+	// The VM will handle the complex parsing
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling PYRAMID arguments: %v", err)
+	}
+
+	// Emit PYRAMID instruction
+	c.Emit(OP_PYRAMID)
+	return nil
+}
+
+// compileCylinder compiles CYLINDER statements
+func (c *BytecodeCompiler) compileCylinder(args string) error {
+	if args == "" {
+		return fmt.Errorf("CYLINDER requires arguments")
+	}
+
+	// For CYLINDER, we need to handle variable argument count
+	// Just compile the entire argument string as a single expression for now
+	// The VM will handle the complex parsing
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling CYLINDER arguments: %v", err)
+	}
+
+	// Emit CYLINDER instruction
+	c.Emit(OP_CYLINDER)
+	return nil
+}
+
+// compileVecFloor compiles VECFLOOR statements
+func (c *BytecodeCompiler) compileVecFloor(args string) error {
+	if args == "" {
+		return fmt.Errorf("VECFLOOR requires arguments")
+	}
+
+	// For VECFLOOR, we need to handle variable argument count
+	// Just compile the entire argument string as a single expression for now
+	// The VM will handle the complex parsing
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling VECFLOOR arguments: %v", err)
+	}
+
+	// Emit VECFLOOR instruction
+	c.Emit(OP_CALL_FUNC, "VECFLOOR", args)
+	return nil
+}
+
+// compileVecNode compiles VECNODE statements
+func (c *BytecodeCompiler) compileVecNode(args string) error {
+	if args == "" {
+		return fmt.Errorf("VECNODE requires arguments")
+	}
+
+	// For VECNODE, we need to handle variable argument count
+	// Just compile the entire argument string as a single expression for now
+	// The VM will handle the complex parsing
+	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
+	if err != nil {
+		return fmt.Errorf("error compiling VECNODE arguments: %v", err)
+	}
+
+	// Emit VECNODE instruction
+	c.Emit(OP_CALL_FUNC, "VECNODE", args)
 	return nil
 }
 

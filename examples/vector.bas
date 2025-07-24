@@ -1,11 +1,12 @@
 ' 32 fliegende Kugeln und Würfel – Demo
 10 REM 32 Objekte: Kugeln, Würfel, Pyramiden und Zylinder
 20 CLS
-30 PRINT "VectorBallz Demo: 32 3D-Objekte"
-40 PRINT "Kugeln, Würfel, Pyramiden, Zylinder"
+30 PRINT "VectorBallz Demo: 32 3D-Objects"
+40 PRINT "Balls, Cubes, Pyramids and Cylinders"
 50 PRINT "-----------------------------------"
 60 WAIT 500
-
+70 MUSIC OPEN "mutants.sid"
+80 MUSIC PLAY
 100 REM Konstanten
 110 LET NUM_OBJS = 32
 120 LET DELAY = 12
@@ -48,38 +49,76 @@
 540   LET COLOR(I) = RND(13)+2
 560 NEXT I
 
+590 REM Erstelle rotierenden Floor mit weniger Grid-Punkten
+595 VECFLOOR 99, 0, -15, -20, 0, 0, 0, 32, 32, 3, 8
+596 LET FLOOR_ROT = 0
+597 LET WAVE_TIMER = 0
+598 LET WAVE_ACTIVE = 0
+599 LET WAVE_PHASE = 0
+
 600 REM Hauptschleife
 610 FOR FRAME = 1 TO 100000
-620   FOR I = 1 TO NUM_OBJS
-630     LET X(I) = X(I) + XS(I)
-640     LET Y(I) = Y(I) + YS(I)
-650     LET Z(I) = Z(I) + ZS(I)
-660     LET ROTX(I) = ROTX(I) + ROTS(I)
-670     LET ROTY(I) = ROTY(I) + ROTS(I)*0.7
-680     LET ROTZ(I) = ROTZ(I) + ROTS(I)*0.5
-690     IF ROTX(I) >= 360 THEN LET ROTX(I) = ROTX(I) - 360
-700     IF ROTY(I) >= 360 THEN LET ROTY(I) = ROTY(I) - 360
-710     IF ROTZ(I) >= 360 THEN LET ROTZ(I) = ROTZ(I) - 360
+615   REM Aktualisiere Floor-Rotation
+616   LET FLOOR_ROT = FLOOR_ROT + 0.5
+617   IF FLOOR_ROT >= 360 THEN LET FLOOR_ROT = FLOOR_ROT - 360
+618   VECFLOOR 99, 0, -15, -20, 0, FLOOR_ROT, 0, 32, 32, 3, 8
+619   
+620   REM Zufällige Sinus-Wellen Effekte
+625   LET WAVE_TIMER = WAVE_TIMER + 1
+630   IF WAVE_ACTIVE = 0 AND RND(500) = 1 THEN LET WAVE_ACTIVE = 1 : LET WAVE_TIMER = 0 : LET WAVE_PHASE = 0 : LET WAVE_ROW = 0
+635   IF WAVE_ACTIVE = 1 THEN GOSUB 2000
+640   IF WAVE_TIMER > 150 THEN LET WAVE_ACTIVE = 0
+645   
+650   FOR I = 1 TO NUM_OBJS
+660     LET X(I) = X(I) + XS(I)
+670     LET Y(I) = Y(I) + YS(I)
+680     LET Z(I) = Z(I) + ZS(I)
+690     LET ROTX(I) = ROTX(I) + ROTS(I)
+700     LET ROTY(I) = ROTY(I) + ROTS(I)*0.7
+710     LET ROTZ(I) = ROTZ(I) + ROTS(I)*0.5
+720     IF ROTX(I) >= 360 THEN LET ROTX(I) = ROTX(I) - 360
+730     IF ROTY(I) >= 360 THEN LET ROTY(I) = ROTY(I) - 360
+740     IF ROTZ(I) >= 360 THEN LET ROTZ(I) = ROTZ(I) - 360
 
-720     REM Kollision X
-730     IF X(I) > MAXX THEN LET X(I) = MAXX : LET XS(I) = -ABS(XS(I))
-740     IF X(I) < MINX THEN LET X(I) = MINX : LET XS(I) = ABS(XS(I))
+750     REM Kollision X
+760     IF X(I) > MAXX THEN LET X(I) = MAXX : LET XS(I) = -ABS(XS(I))
+770     IF X(I) < MINX THEN LET X(I) = MINX : LET XS(I) = ABS(XS(I))
 
-750     REM Kollision Y
-760     IF Y(I) > MAXY THEN LET Y(I) = MAXY : LET YS(I) = -ABS(YS(I))
-770     IF Y(I) < MINY THEN LET Y(I) = MINY : LET YS(I) = ABS(YS(I))
+780     REM Kollision Y
+790     IF Y(I) > MAXY THEN LET Y(I) = MAXY : LET YS(I) = -ABS(YS(I))
+800     IF Y(I) < MINY THEN LET Y(I) = MINY : LET YS(I) = ABS(YS(I))
 
-780     REM Kollision Z (optional, meist konstant)
-790     IF Z(I) > MAXZ THEN LET Z(I) = MAXZ : LET ZS(I) = -ABS(ZS(I))
-800     IF Z(I) < MINZ THEN LET Z(I) = MINZ : LET ZS(I) = ABS(ZS(I))
+810     REM Kollision Z (optional, meist konstant)
+820     IF Z(I) > MAXZ THEN LET Z(I) = MAXZ : LET ZS(I) = -ABS(ZS(I))
+830     IF Z(I) < MINZ THEN LET Z(I) = MINZ : LET ZS(I) = ABS(ZS(I))
 
-810     REM Objekt-Typen: 0=Kugel, 1=Würfel, 2=Pyramide, 3=Zylinder
-820     IF OBJ_TYPE(I) = 0 THEN VECTOR I, "sphere", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
-830     IF OBJ_TYPE(I) = 1 THEN VECTOR I, "cube", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
-840     IF OBJ_TYPE(I) = 2 THEN VECTOR I, "pyramid", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
-850     IF OBJ_TYPE(I) = 3 THEN VECTOR I, "cylinder", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
-860   NEXT I
-870   WAIT DELAY
-880 NEXT FRAME
+840     REM Objekt-Typen: 0=Kugel, 1=Würfel, 2=Pyramide, 3=Zylinder
+850     IF OBJ_TYPE(I) = 0 THEN VECTOR I, "sphere", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
+860     IF OBJ_TYPE(I) = 1 THEN VECTOR I, "cube", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
+870     IF OBJ_TYPE(I) = 2 THEN VECTOR I, "pyramid", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
+880     IF OBJ_TYPE(I) = 3 THEN VECTOR I, "cylinder", X(I), Y(I), Z(I), ROTX(I), ROTY(I), ROTZ(I), RADIUS(I), COLOR(I)
+890   NEXT I
+900   WAIT DELAY
+910 NEXT FRAME
 
-900 END
+920 END
+
+2000 REM Sinus-Wellen Effekt Subroutine - Langsamere, höhere Wellen
+2010 LET WAVE_PHASE = WAVE_PHASE + 0.15
+2020 REM Aktualisiere nur 4 Reihen pro Frame für Performance
+2030 FOR WX = WAVE_ROW TO WAVE_ROW + 3
+2040   IF WX <= 31 THEN GOSUB 2200
+2050 NEXT WX
+2060 LET WAVE_ROW = WAVE_ROW + 4
+2070 IF WAVE_ROW > 31 THEN LET WAVE_ROW = 0
+2080 RETURN
+
+2200 REM Einzelne Reihe bearbeiten
+2210 FOR WZ = 0 TO 31
+2220   LET WAVE_X = (WX - 16) * 0.3
+2230   LET WAVE_Z = (WZ - 16) * 0.3
+2240   LET DISTANCE = SQR(WAVE_X * WAVE_X + WAVE_Z * WAVE_Z)
+2250   LET HEIGHT = SIN(DISTANCE * 0.4 + WAVE_PHASE) * 4.5
+2260   VECNODE WX, WZ, HEIGHT
+2270 NEXT WZ
+2280 RETURN

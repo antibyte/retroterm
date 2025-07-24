@@ -14,6 +14,7 @@ const (
 	MaxVectorID       = 255 // Maximum number of vector objects
 	DefaultBrightness = 15  // Default brightness for vector objects
 	MaxBrightness     = 15  // Maximum brightness for vector objects
+	MaxGridSize       = 256 // Maximum grid size for VECFLOOR
 )
 
 // VectorShape represents the supported 3D shapes
@@ -26,6 +27,7 @@ const (
 	ShapeSphere     VectorShape = "sphere"
 	ShapeCylinder   VectorShape = "cylinder"
 	ShapeCone       VectorShape = "cone"
+	ShapeFloor      VectorShape = "floor"
 )
 
 // Helper function to send vector commands
@@ -629,6 +631,194 @@ func (b *TinyBASIC) cmdCylinder(args string) error {
 			"radius":     radius,
 			"height":     height,
 			"lineCount":  8, // 8 connecting lines
+		},
+	})
+
+	return nil
+}
+
+// cmdVecFloor implements the VECFLOOR command:
+// VECFLOOR id, x, y, z, rotX, rotY, rotZ, gridWidth, gridDepth, spacing, [brightness]
+// Creates a grid floor with adjustable size and positioning
+func (b *TinyBASIC) cmdVecFloor(args string) error {
+	params := splitRespectingParentheses(strings.TrimSpace(args))
+	if len(params) < 10 || len(params) > 11 {
+		return NewBASICError(ErrCategorySyntax, "INVALID_PARAMETER_COUNT", b.currentLine == 0, b.currentLine).
+			WithCommand("VECFLOOR").
+			WithUsageHint("VECFLOOR id, x, y, z, rotX, rotY, rotZ, gridWidth, gridDepth, spacing, [brightness]")
+	}
+
+	// Check id
+	idExpr := strings.TrimSpace(params[0])
+	idVal, err := b.evalExpression(idExpr)
+	if err != nil {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_EXPRESSION", b.currentLine == 0, b.currentLine).
+			WithCommand("VECFLOOR").
+			WithUsageHint("Error in floor ID parameter")
+	}
+	id, err := basicValueToInt(idVal)
+	if err != nil {
+		return NewBASICError(ErrCategoryEvaluation, "TYPE_MISMATCH", b.currentLine == 0, b.currentLine).
+			WithCommand("VECFLOOR").
+			WithUsageHint("Floor ID must be numeric")
+	}
+	if id < 0 || id > MaxVectorID {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_PARAMETER_VALUE", b.currentLine == 0, b.currentLine).
+			WithCommand("VECFLOOR").
+			WithUsageHint(fmt.Sprintf("Floor ID must be between 0 and %d", MaxVectorID))
+	}
+
+	// Position X,Y,Z
+	posX, err := b.evalNumericParam(params[1], "x position")
+	if err != nil {
+		return err
+	}
+	posY, err := b.evalNumericParam(params[2], "y position")
+	if err != nil {
+		return err
+	}
+	posZ, err := b.evalNumericParam(params[3], "z position")
+	if err != nil {
+		return err
+	}
+
+	// Rotation X,Y,Z
+	rotX, err := b.evalNumericParam(params[4], "x rotation")
+	if err != nil {
+		return err
+	}
+	rotY, err := b.evalNumericParam(params[5], "y rotation")
+	if err != nil {
+		return err
+	}
+	rotZ, err := b.evalNumericParam(params[6], "z rotation")
+	if err != nil {
+		return err
+	}
+
+	// Grid dimensions
+	gridWidth, err := b.evalNumericParam(params[7], "grid width")
+	if err != nil {
+		return err
+	}
+	if gridWidth < 1 || gridWidth > MaxGridSize {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_PARAMETER_VALUE", b.currentLine == 0, b.currentLine).
+			WithCommand("VECFLOOR").
+			WithUsageHint(fmt.Sprintf("Grid width must be between 1 and %d", MaxGridSize))
+	}
+
+	gridDepth, err := b.evalNumericParam(params[8], "grid depth")
+	if err != nil {
+		return err
+	}
+	if gridDepth < 1 || gridDepth > MaxGridSize {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_PARAMETER_VALUE", b.currentLine == 0, b.currentLine).
+			WithCommand("VECFLOOR").
+			WithUsageHint(fmt.Sprintf("Grid depth must be between 1 and %d", MaxGridSize))
+	}
+
+	// Spacing between grid points
+	spacing, err := b.evalNumericParam(params[9], "spacing")
+	if err != nil {
+		return err
+	}
+
+	// Optional brightness check
+	brightness := DefaultBrightness
+	if len(params) >= 11 {
+		brightnessExpr := strings.TrimSpace(params[10])
+		brightnessVal, err := b.evalExpression(brightnessExpr)
+		if err != nil {
+			return NewBASICError(ErrCategoryEvaluation, "VECTOR_BRIGHTNESS_PARAM_ERROR", b.currentLine == 0, b.currentLine).
+				WithCommand("VECFLOOR").
+				WithUsageHint("Brightness parameter must be a valid numeric expression")
+		}
+		if !brightnessVal.IsNumeric {
+			return NewBASICError(ErrCategoryEvaluation, "VECTOR_BRIGHTNESS_TYPE_ERROR", b.currentLine == 0, b.currentLine).
+				WithCommand("VECFLOOR").
+				WithUsageHint("Brightness must be numeric between 0-15")
+		}
+		brightness = int(brightnessVal.NumValue)
+		if brightness < 0 || brightness > MaxBrightness {
+			brightness = MaxBrightness // Limit to valid range
+		}
+	}
+
+	b.sendVectorCommand(shared.Message{
+		Type:    shared.MessageTypeVector,
+		Command: "UPDATE_VECTOR",
+		ID:      id,
+		Shape:   "floor", // string
+		Position: map[string]float64{
+			"x": posX,
+			"y": posY,
+			"z": posZ,
+		},
+		VecRotation: map[string]float64{
+			"x": degToRad(rotX),
+			"y": degToRad(rotY),
+			"z": degToRad(rotZ),
+		},
+		Scale:      1.0, // Not used for floor, use grid dimensions instead
+		Visible:    boolPtr(true),
+		Brightness: brightness,
+		// Store grid parameters
+		CustomData: map[string]interface{}{
+			"gridWidth": int(gridWidth),
+			"gridDepth": int(gridDepth),
+			"spacing":   spacing,
+		},
+	})
+
+	return nil
+}
+
+// cmdVecNode implements the VECNODE command:
+// VECNODE gridX, gridZ, height
+// Modifies the height of a specific grid point in the current floor
+func (b *TinyBASIC) cmdVecNode(args string) error {
+	params := splitRespectingParentheses(strings.TrimSpace(args))
+	if len(params) != 3 {
+		return NewBASICError(ErrCategorySyntax, "INVALID_PARAMETER_COUNT", b.currentLine == 0, b.currentLine).
+			WithCommand("VECNODE").
+			WithUsageHint("VECNODE gridX, gridZ, height")
+	}
+
+	// Grid coordinates
+	gridX, err := b.evalNumericParam(params[0], "grid X")
+	if err != nil {
+		return err
+	}
+	if gridX < 0 || gridX >= MaxGridSize {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_PARAMETER_VALUE", b.currentLine == 0, b.currentLine).
+			WithCommand("VECNODE").
+			WithUsageHint(fmt.Sprintf("Grid X must be between 0 and %d", MaxGridSize-1))
+	}
+
+	gridZ, err := b.evalNumericParam(params[1], "grid Z")
+	if err != nil {
+		return err
+	}
+	if gridZ < 0 || gridZ >= MaxGridSize {
+		return NewBASICError(ErrCategoryEvaluation, "INVALID_PARAMETER_VALUE", b.currentLine == 0, b.currentLine).
+			WithCommand("VECNODE").
+			WithUsageHint(fmt.Sprintf("Grid Z must be between 0 and %d", MaxGridSize-1))
+	}
+
+	// Height modification
+	height, err := b.evalNumericParam(params[2], "height")
+	if err != nil {
+		return err
+	}
+
+	// Send node modification command
+	b.sendVectorCommand(shared.Message{
+		Type:    shared.MessageTypeVector,
+		Command: "UPDATE_NODE",
+		CustomData: map[string]interface{}{
+			"gridX":  int(gridX),
+			"gridZ":  int(gridZ),
+			"height": height,
 		},
 	})
 

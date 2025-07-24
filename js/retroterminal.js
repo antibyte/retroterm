@@ -144,14 +144,18 @@ function initializeGraphics() {
                 window.vectorDebugInterval = setInterval(() => {
                     if (window.RetroGraphics && window.RetroGraphics.getVectorSceneInfo) {
                         const sceneInfo = window.RetroGraphics.getVectorSceneInfo();
-                        // Prüfen, ob die Vektor-Szene leer ist oder Probleme hat
-                        if (!sceneInfo.initialized || sceneInfo.children === 0) {
+                        // Check if we have 2D vector objects that shouldn't be reset
+                        const has2DVectorObjects = window.vectorManager && window.vectorManager.getVectorObjects && 
+                                                   window.vectorManager.getVectorObjects().length > 0;
+                        
+                        // Prüfen, ob die Vektor-Szene leer ist oder Probleme hat (but don't reset 2D vector objects)
+                        if (!sceneInfo.initialized || (sceneInfo.children === 0 && !has2DVectorObjects)) {
 
                             // Erst versuchen, alle regulären Vektoren wiederherzustellen
                             if (window.RetroGraphics.resetAndRebuildVectorScene && 
                                 window.RetroGraphics.resetAndRebuildVectorScene()) {
-                            } else {
-                                // Wenn keine regulären Vektoren vorhanden waren, Debug-Vektoren erstellen
+                            } else if (!has2DVectorObjects) {
+                                // Wenn keine regulären Vektoren vorhanden waren, Debug-Vektoren erstellen (but not if we have 2D objects)
 
                                 window.RetroGraphics.debugVectorRendering();
                             }
@@ -162,13 +166,17 @@ function initializeGraphics() {
             // Event-Listener für Fenster-Fokus/Blur - kann WebGL-Rendering-Problemen vorbeugen
             window.addEventListener('focus', () => {
                 if (window.RetroGraphics) {
-                    // Priorisierte Wiederherstellung:
+                    // Check if we have 2D vector objects that shouldn't be reset
+                    const has2DVectorObjects = window.vectorManager && window.vectorManager.getVectorObjects && 
+                                               window.vectorManager.getVectorObjects().length > 0;
+                    
+                    // Priorisierte Wiederherstellung (but not for 2D objects):
                     // 1. Erst versuchen, alle registrierten Vektoren wiederherzustellen
-                    if (typeof window.RetroGraphics.resetAndRebuildVectorScene === 'function' &&
+                    if (!has2DVectorObjects && typeof window.RetroGraphics.resetAndRebuildVectorScene === 'function' &&
                         window.RetroGraphics.resetAndRebuildVectorScene()) {
                     } 
                     // 2. Sonst Debug-Vektoren anzeigen als Fallback
-                    else if (typeof window.RetroGraphics.debugVectorRendering === 'function') {
+                    else if (!has2DVectorObjects && typeof window.RetroGraphics.debugVectorRendering === 'function') {
                         window.RetroGraphics.debugVectorRendering();
                     }
                 }

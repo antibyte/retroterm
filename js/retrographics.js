@@ -708,8 +708,12 @@ function animateCRT() {
               // Render vectors if vectorManager is available and vectors need update
             if (vectorsNeedUpdate && window.vectorManager && typeof window.vectorManager.renderVectors === 'function') {
                 window.vectorManager.renderVectors(persistentGraphicsContext, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
-                // Reset vector dirty flag after rendering
-                window.RetroGraphics._vectorsDirty = false;
+                // Reset vector dirty flag after rendering (but keep it dirty if we have persistent objects like floors)
+                const hasFloorObjects = window.vectorManager.getVectorObjects().some(obj => obj && obj.type === 'floor');
+                if (!hasFloorObjects) {
+                    window.RetroGraphics._vectorsDirty = false;
+                }
+                // If we have floor objects, keep the dirty flag to ensure continuous rendering without flicker
             }
             
             // Copy persistent2D graphics to main graphics canvas if needed

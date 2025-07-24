@@ -1523,6 +1523,12 @@ func (b *TinyBASIC) executeSingleStatementInternal(statement string, ctx context
 	case "VECTOR.SHOW":
 		err := b.cmdVectorShow(args)
 		return physicalNextLine, err
+	case "VECFLOOR":
+		err := b.cmdVecFloor(args)
+		return physicalNextLine, err
+	case "VECNODE":
+		err := b.cmdVecNode(args)
+		return physicalNextLine, err
 	default:
 		// Check if it's an implicit LET statement (e.g., A=10)
 		// The original BASIC often allowed LET to be omitted.

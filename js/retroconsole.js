@@ -1214,6 +1214,13 @@ Object.assign(window.RetroConsole, {
                                 // console.log('[RetroConsole-VECTOR] RetroGraphics.clearAllVectors not available');
                             }
                             break;
+                        case 'UPDATE_NODE':
+                            if (window.vectorManager && typeof window.vectorManager.handleUpdateNode === 'function') {
+                                window.vectorManager.handleUpdateNode(response);
+                            } else if (this.debugMode) {
+                                // console.log('[RetroConsole-VECTOR] vectorManager.handleUpdateNode not available');
+                            }
+                            break;
                         default:
                             if (this.debugMode) {
                                 // console.log('[RetroConsole-VECTOR] Unknown vector command:', response.command);

@@ -558,6 +558,8 @@ function renderVectors(ctx, canvasWidth, canvasHeight) {
         return;
     }
     
+    // Removed debug logging for performance
+    
     // Clear is done by retrographics before calling this
 
     vectorObjects.forEach((obj, index) => {
@@ -620,6 +622,8 @@ function renderVectors(ctx, canvasWidth, canvasHeight) {
         });
         ctx.stroke(); // Stroke any remaining path for the object
     });
+    
+    // Don't keep setting dirty flag - causes flicker
 }
 
 
@@ -668,6 +672,20 @@ function handleUpdateVector3D(data) {
                     obj.id = `vector_${id}`;
                     obj.originalId = id;
                     obj.shape = shape;
+                } else if (shape === "floor") {
+                    // Create grid floor using customData parameters
+                    const customData = data.customData || {};
+                    const gridWidth = customData.gridWidth || 10;
+                    const gridDepth = customData.gridDepth || 10;
+                    const spacing = customData.spacing || 1;
+                    obj = createGridFloor(gridWidth, gridDepth, spacing, pos, getBrightnessColor(brightness));
+                    obj.id = `vector_${id}`;
+                    obj.originalId = id;
+                    obj.shape = shape;
+                    obj.gridWidth = gridWidth;
+                    obj.gridDepth = gridDepth;
+                    obj.spacing = spacing;
+                    obj.visible = true; // Explicitly ensure visibility
                 } else {
                     // Default to cube for unknown shapes
                     obj = createTestCube(scale, pos, getBrightnessColor(brightness));
@@ -971,6 +989,138 @@ function createCylinder(radius, height, lineCount, position, color) {
     return cylinder;
 }
 
+// Create grid floor with adjustable size and height map
+function createGridFloor(gridWidth, gridDepth, spacing, position, color) {
+    const floor = {
+        id: 'floor_' + objectIdCounter++,
+        type: 'floor',
+        vertices: [],
+        edges: [],
+        color: color,
+        worldMatrix: createIdentityMatrix(),
+        transform: {
+            translation: { x: position.x, y: position.y, z: position.z },
+            rotation: { x: 0, y: 0, z: 0 },
+            scale: { x: 1, y: 1, z: 1 }
+        },
+        visible: true,
+        gridWidth: gridWidth,
+        gridDepth: gridDepth,
+        spacing: spacing,
+        heightMap: [] // 2D array for height values
+    };
+
+    // Initialize height map with zeros
+    for (let x = 0; x < gridWidth; x++) {
+        floor.heightMap[x] = [];
+        for (let z = 0; z < gridDepth; z++) {
+            floor.heightMap[x][z] = 0;
+        }
+    }
+
+    // Generate grid vertices
+    for (let x = 0; x < gridWidth; x++) {
+        for (let z = 0; z < gridDepth; z++) {
+            const worldX = (x - gridWidth / 2) * spacing;
+            const worldZ = (z - gridDepth / 2) * spacing;
+            const height = floor.heightMap[x][z];
+            
+            floor.vertices.push({
+                x: worldX,
+                y: height,
+                z: worldZ,
+                gridX: x,
+                gridZ: z
+            });
+        }
+    }
+
+    // Generate grid edges (horizontal and vertical lines)
+    for (let x = 0; x < gridWidth; x++) {
+        for (let z = 0; z < gridDepth; z++) {
+            const currentIndex = x * gridDepth + z;
+            
+            // Horizontal edges (connect to next z if not at edge)
+            if (z < gridDepth - 1) {
+                const nextZIndex = x * gridDepth + (z + 1);
+                floor.edges.push([currentIndex, nextZIndex]);
+            }
+            
+            // Vertical edges (connect to next x if not at edge)
+            if (x < gridWidth - 1) {
+                const nextXIndex = (x + 1) * gridDepth + z;
+                floor.edges.push([currentIndex, nextXIndex]);
+            }
+        }
+    }
+
+    updateWorldMatrix(floor);
+    return floor;
+}
+
+// Update a specific grid node height
+function updateGridNode(floorObject, gridX, gridZ, height) {
+    if (!floorObject || floorObject.type !== 'floor') {
+        // Cannot update node: object is not a floor
+        return;
+    }
+    
+    if (gridX < 0 || gridX >= floorObject.gridWidth || gridZ < 0 || gridZ >= floorObject.gridDepth) {
+        // Grid coordinates out of bounds
+        return;
+    }
+    
+    // Update height map
+    floorObject.heightMap[gridX][gridZ] = height;
+    
+    // Update corresponding vertex
+    const vertexIndex = gridX * floorObject.gridDepth + gridZ;
+    if (vertexIndex < floorObject.vertices.length) {
+        floorObject.vertices[vertexIndex].y = height;
+    }
+    
+    // Grid node updated
+}
+
+// Handler function for UPDATE_NODE command from backend
+function handleUpdateNode(data) {
+    // Debug logging removed for performance
+    
+    // Extract customData from the message
+    const customData = data.customData;
+    if (!customData) {
+        // UPDATE_NODE missing customData
+        return false;
+    }
+    
+    const gridX = customData.gridX;
+    const gridZ = customData.gridZ;
+    const height = customData.height;
+    
+    if (typeof gridX !== 'number' || typeof gridZ !== 'number' || typeof height !== 'number') {
+        // UPDATE_NODE invalid parameters
+        return false;
+    }
+    
+    // Find the first floor object to update (since VECNODE doesn't specify ID, 
+    // it updates the "current" floor, which we assume is the first floor object)
+    const floorObject = vectorObjects.find(obj => obj.type === 'floor');
+    if (!floorObject) {
+        // UPDATE_NODE: No floor object found
+        return false;
+    }
+    
+    // Update the node
+    updateGridNode(floorObject, gridX, gridZ, height);
+    
+    // Mark vectors as dirty for re-rendering
+    window.RetroGraphics._vectorsDirty = true;
+    
+    return true;
+}
+
+// Remove the bad flicker-causing solution
+
 // Make vectorManager globally available
 window.vectorManager = {
     initVectorManager,
@@ -995,6 +1145,7 @@ window.vectorManager = {
     multiplyMatrices,
     updateWorldMatrix,
     handleUpdateVector3D,
+    handleUpdateNode,
     clearAllVectorObjects3D,
     createPyramid,
     createCylinder

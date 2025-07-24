@@ -21,8 +21,12 @@ function renderLoop(timestamp) {
             registeredInstances: window.RetroGraphics._vectorObjects ? window.RetroGraphics._vectorObjects.size : 0
         };
         
-        // Bei Problemen automatische Wiederherstellung
-        if ((!sceneInfo.initialized || sceneInfo.children === 0) && sceneInfo.registeredInstances > 0) {
+        // Bei Problemen automatische Wiederherstellung (aber nicht für 2D vectorManager objects)
+        // Check if we have 2D vector objects (floors, etc.) that shouldn't be reset
+        const has2DVectorObjects = window.vectorManager && window.vectorManager.getVectorObjects && 
+                                   window.vectorManager.getVectorObjects().length > 0;
+        
+        if ((!sceneInfo.initialized || sceneInfo.children === 0) && sceneInfo.registeredInstances > 0 && !has2DVectorObjects) {
 
             if (window.RetroGraphics && window.RetroGraphics.resetAndRebuildVectorScene) {
                 window.RetroGraphics.resetAndRebuildVectorScene();
