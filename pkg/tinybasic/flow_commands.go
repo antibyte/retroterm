@@ -487,6 +487,14 @@ func (b *TinyBASIC) cmdFor(args string, nextTokenIndex int) error {
 		b.currentLine = nextJumpLine                // Jump past NEXT.
 		b.forLoops = b.forLoops[:len(b.forLoops)-1] // Pop loop info as es wurde übersprungen.
 	} else {
+		// Record loop execution for JIT hot spot detection (but don't execute yet)
+		if b.simpleJIT != nil && b.simpleJIT.enabled {
+			signature := fmt.Sprintf("FOR_%s_%d", varNameUpper, b.currentLine)
+			b.simpleJIT.RecordExecution(signature)
+			tinyBasicDebugLog("[SimpleJIT] Recorded execution for loop %s (count: %d)", signature, b.simpleJIT.executionCounts[signature])
+		}
+		
+		// Always use interpreter for loop execution - JIT will be checked in NEXT
 		// Set currentLine to the first line of the loop body
 		b.currentLine = firstLoopLine
 	}

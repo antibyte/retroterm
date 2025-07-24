@@ -3,6 +3,7 @@ package tinybasic
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/antibyte/retroterm/pkg/shared"
 )
@@ -27,6 +28,14 @@ func NewTestBasic() *TinyBASIC {
 		ctx:          ctx,
 		cancel:       cancel,
 		sessionID:    "test-session",
+		
+		// Expression Token Caching - required for tests
+		exprTokenCache: NewExpressionTokenCache(100, 5*time.Minute),
+		
+		// JIT Compiler - required for tests  
+		jitCompiler:    NewJITCompiler(),
+		simpleJIT:      NewSimpleJIT(),
+		expressionJIT:  NewExpressionJIT(),
 	}
 
 	return b

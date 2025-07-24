@@ -518,6 +518,11 @@ function initGraphicsPipeline(textCanvasSource, textTextureSource) {
 
     }
     
+    // Initialize imageManager if available
+    if (window.imageManager && typeof window.imageManager.initImageManager === 'function') {
+        window.imageManager.initImageManager();
+    }
+    
     // 5. Setup Post-Processing Scene
     postProcessingScene = new THREE.Scene();
     orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -696,8 +701,9 @@ function animateCRT() {
         const spritesNeedUpdate = window.RetroGraphics && window.RetroGraphics._spritesDirty;
         const vectorsNeedUpdate = window.RetroGraphics && window.RetroGraphics._vectorsDirty;
         const graphics2DNeedUpdate = window.RetroGraphics && window.RetroGraphics._graphics2DDirty;
+        const imagesNeedUpdate = window.RetroGraphics && window.RetroGraphics._imagesDirty;
         
-        if (spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate) {
+        if (spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate || imagesNeedUpdate) {
             // Clear the graphics canvas for this frame
             persistentGraphicsContext.clearRect(0, 0, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
               // Render sprites if spriteManager is available and sprites need update
@@ -716,6 +722,17 @@ function animateCRT() {
                 // If we have floor objects, keep the dirty flag to ensure continuous rendering without flicker
             }
             
+            // Always render all visible images if imageManager is available
+            // (since canvas was cleared, we need to redraw everything)
+            if (window.imageManager && typeof window.imageManager.renderImages === 'function') {
+                window.imageManager.renderImages(persistentGraphicsContext, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
+            }
+            
+            // Reset image dirty flag after rendering
+            if (imagesNeedUpdate) {
+                window.RetroGraphics._imagesDirty = false;
+            }
+            
             // Copy persistent2D graphics to main graphics canvas if needed
             if (persistent2DCanvas && persistent2DContext) {
                 persistentGraphicsContext.drawImage(persistent2DCanvas, 0, 0);
@@ -727,10 +744,11 @@ function animateCRT() {
             if (graphics2DNeedUpdate && !(persistent2DCanvas && persistent2DContext)) {
                 window.RetroGraphics._graphics2DDirty = false;
             }
-              // Update the graphics texture
-            if (graphicsSpriteTexture) {
-                graphicsSpriteTexture.needsUpdate = true;
-            }
+        }
+        
+        // Always update the graphics texture if any graphics content changed
+        if ((spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate || imagesNeedUpdate) && graphicsSpriteTexture) {
+            graphicsSpriteTexture.needsUpdate = true;
         }
     }
    // Update time for shader effects

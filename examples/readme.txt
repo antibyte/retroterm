@@ -156,7 +156,7 @@ SPRITE GRAPHICS (32x32 pixel sprites):
 
 3D VECTOR GRAPHICS:
   VECTOR id, "shape", x, y, z, rotX, rotY, rotZ, scale [, brightness]
-    shapes: "cube", "pyramid", "sphere"
+    shapes: "cube", "pyramid", "sphere", "cylinder"
   VECTOR id AT x, y - Move vector object
   VECTOR id COLOR brightness - Set vector brightness
   VECTOR id ON/OFF  - Show/hide vector

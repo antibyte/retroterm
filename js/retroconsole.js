@@ -46,7 +46,9 @@ const RESPONSE_TYPE_MAP = {
     23: 'TELNET',       // Telnet-Modus
     24: 'AUTO_EXECUTE', // Automatische Eingabe-Ausführung (autorun)
     25: 'BITMAP',       // Bitmap-Übertragung (PNG) mit Platzierung/Skalierung/Rotation
-    26: 'EVIL'          // Evil effect - dramatic noise increase for MCP
+    26: 'EVIL',         // Evil effect - dramatic noise increase for MCP
+    27: 'AUTH_REFRESH', // Auth token refresh required
+    28: 'IMAGE'         // Image commands (LOAD, SHOW, HIDE, ROTATE)
 };
 
 // Zentrales RetroConsole-Objekt global anlegen, falls noch nicht vorhanden
@@ -1296,6 +1298,10 @@ Object.assign(window.RetroConsole, {
                 break;            case 'BITMAP':
                 // Debug logging for BITMAP messages - removed for production
                 this.handleBitmapMessage(response);
+                break;
+            case 'IMAGE':
+                // Handle IMAGE messages (LOAD, SHOW, HIDE, ROTATE)
+                this.handleImageMessage(response);
                 break;
                 
             default:
@@ -2553,6 +2559,199 @@ Object.assign(window.RetroConsole, {
             img.src = 'data:image/png;base64,' + response.bitmapData;
         } else {
             console.error('[RetroConsole-BITMAP] No bitmapData provided in response');
+        }
+    },
+    
+    // Handle image messages for IMAGE commands
+    handleImageMessage: function(response) {
+        // Initialize imageManager inline if it doesn't exist
+        if (!window.imageManager) {
+            console.log('[RetroConsole-IMAGE] Initializing imageManager inline...');
+            this.initInlineImageManager();
+        }
+        
+        this.processImageMessage(response);
+    },
+    
+    // Inline imageManager implementation
+    initInlineImageManager: function() {
+        let imageObjects = [];
+        const maxImageHandle = 8;
+        
+        // Initialize dirty flag
+        if (!window.RetroGraphics) {
+            window.RetroGraphics = {};
+        }
+        if (typeof window.RetroGraphics._imagesDirty === 'undefined') {
+            window.RetroGraphics._imagesDirty = false;
+        }
+        
+        // Find image by handle
+        const findImageByHandle = (handle) => {
+            return imageObjects.find(obj => obj.handle === handle);
+        };
+        
+        // Convert scale parameter to actual scale factor
+        const getScaleFactor = (scaleParam) => {
+            if (scaleParam === 0) return 1.0; // Original size
+            if (scaleParam > 0) {
+                return 1.0 + scaleParam;
+            } else {
+                return 1.0 / (1.0 - scaleParam);
+            }
+        };
+        
+        // Create imageManager object
+        window.imageManager = {
+            handleLoadImage: function(data) {
+                const handle = data.id;
+                const customData = data.customData;
+                
+                if (!customData || !customData.imageData) {
+                    console.error('[IMAGE-INLINE] LOAD_IMAGE missing image data');
+                    return false;
+                }
+                
+                const imageData = customData.imageData;
+                const width = customData.width || 0;
+                const height = customData.height || 0;
+                const filename = customData.filename || 'unknown';
+                
+                const img = new Image();
+                img.onload = function() {
+                    const imageObj = {
+                        handle: handle,
+                        image: img,
+                        width: width,
+                        height: height,
+                        filename: filename,
+                        visible: false,
+                        x: 0,
+                        y: 0,
+                        scale: 0,
+                        rotation: 0,
+                        loaded: true
+                    };
+                    
+                    // Remove existing image with same handle
+                    imageObjects = imageObjects.filter(obj => obj.handle !== handle);
+                    imageObjects.push(imageObj);
+                    
+                    console.log('[IMAGE-INLINE] Image loaded:', filename, 'handle:', handle);
+                    window.RetroGraphics._imagesDirty = true;
+                };
+                
+                img.onerror = function() {
+                    console.error('[IMAGE-INLINE] Failed to load image:', filename);
+                };
+                
+                img.src = 'data:image/png;base64,' + imageData;
+                return true;
+            },
+            
+            handleShowImage: function(data) {
+                const handle = data.id;
+                const position = data.position;
+                const scale = data.scale || 0;
+                
+                const imgObj = findImageByHandle(handle);
+                if (!imgObj) {
+                    console.warn('[IMAGE-INLINE] SHOW_IMAGE: Image not found for handle:', handle);
+                    return false;
+                }
+                
+                imgObj.visible = true;
+                imgObj.x = position.x || 0;
+                imgObj.y = position.y || 0;
+                imgObj.scale = scale;
+                
+                console.log('[IMAGE-INLINE] Showing image:', imgObj.filename, 'at', imgObj.x + ',' + imgObj.y, 'scale:', scale);
+                window.RetroGraphics._imagesDirty = true;
+                return true;
+            },
+            
+            handleHideImage: function(data) {
+                const handle = data.id;
+                const imgObj = findImageByHandle(handle);
+                if (!imgObj) {
+                    console.warn('[IMAGE-INLINE] HIDE_IMAGE: Image not found for handle:', handle);
+                    return false;
+                }
+                
+                imgObj.visible = false;
+                console.log('[IMAGE-INLINE] Hiding image:', imgObj.filename);
+                window.RetroGraphics._imagesDirty = true;
+                return true;
+            },
+            
+            handleRotateImage: function(data) {
+                const handle = data.id;
+                const rotation = data.vecRotation;
+                
+                const imgObj = findImageByHandle(handle);
+                if (!imgObj) {
+                    console.warn('[IMAGE-INLINE] ROTATE_IMAGE: Image not found for handle:', handle);
+                    return false;
+                }
+                
+                if (rotation && typeof rotation.z === 'number') {
+                    imgObj.rotation = rotation.z;
+                    console.log('[IMAGE-INLINE] Rotating image:', imgObj.filename, 'to', (rotation.z * 180 / Math.PI).toFixed(1), 'degrees');
+                }
+                
+                window.RetroGraphics._imagesDirty = true;
+                return true;
+            },
+            
+            renderImages: function(ctx, canvasWidth, canvasHeight) {
+                if (!ctx) return;
+                
+                imageObjects.forEach(imgObj => {
+                    if (!imgObj.visible || !imgObj.loaded) return;
+                    
+                    ctx.save();
+                    const scaleFactor = getScaleFactor(imgObj.scale);
+                    const displayWidth = imgObj.width * scaleFactor;
+                    const displayHeight = imgObj.height * scaleFactor;
+                    
+                    ctx.translate(imgObj.x + displayWidth / 2, imgObj.y + displayHeight / 2);
+                    ctx.rotate(imgObj.rotation);
+                    ctx.scale(scaleFactor, scaleFactor);
+                    ctx.drawImage(imgObj.image, -imgObj.width / 2, -imgObj.height / 2);
+                    ctx.restore();
+                });
+            },
+            
+            initImageManager: function() {
+                console.log('[IMAGE-INLINE] Image manager initialized inline');
+            }
+        };
+        
+        console.log('[RetroConsole-IMAGE] Inline imageManager created successfully');
+    },
+    
+    processImageMessage: function(response) {
+        
+        if (!response.command) {
+            console.warn('[RetroConsole-IMAGE] No command in image message');
+            return;
+        }
+        
+        switch (response.command) {
+            case 'LOAD_IMAGE':
+                window.imageManager.handleLoadImage(response);
+                break;
+            case 'SHOW_IMAGE':
+                window.imageManager.handleShowImage(response);
+                break;
+            case 'HIDE_IMAGE':
+                window.imageManager.handleHideImage(response);
+                break;
+            case 'ROTATE_IMAGE':
+                window.imageManager.handleRotateImage(response);
+                break;
+            default:
+                console.warn('[RetroConsole-IMAGE] Unknown image command:', response.command);
         }
     },
     

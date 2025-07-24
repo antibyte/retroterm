@@ -1529,6 +1529,10 @@ func (b *TinyBASIC) executeSingleStatementInternal(statement string, ctx context
 	case "VECNODE":
 		err := b.cmdVecNode(args)
 		return physicalNextLine, err
+	case "IMAGE":
+		// Handle IMAGE subcommands
+		err := b.handleImageCommand(args)
+		return physicalNextLine, err
 	default:
 		// Check if it's an implicit LET statement (e.g., A=10)
 		// The original BASIC often allowed LET to be omitted.

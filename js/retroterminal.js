@@ -74,7 +74,10 @@ function initializeNonGraphics() {
                 }
             } else {
 
-            }            
+            }
+
+            // ImageManager will auto-initialize when loaded
+            
             // Setup WebSocket with authentication
             (async () => {
                 await setupWebSocket(); // WebSocket einrichten

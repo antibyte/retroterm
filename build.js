@@ -28,6 +28,7 @@ const config = {
         'retrographics.js',
         'spriteManager.js', 
         'vectorManager.js',
+        'imageManager.js',
         'retrosound.js',
         'sidPlayer.js',
         'ansiParser.js',

@@ -20,7 +20,10 @@
       "Bash(sed:*)",
       "Bash(npm run serve:dev:*)",
       "Bash(rm:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(sqlite3:*)",
+      "Bash(find:*)",
+      "Bash(start http://localhost:8080)"
     ],
     "deny": []
   }
