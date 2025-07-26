@@ -49,7 +49,8 @@ const RESPONSE_TYPE_MAP = {
     26: 'EVIL',         // Evil effect - dramatic noise increase for MCP
     27: 'AUTH_REFRESH', // Auth token refresh required
     28: 'IMAGE',        // Image commands (LOAD, SHOW, HIDE, ROTATE)
-    29: 'PARTICLE'      // Particle system commands
+    29: 'PARTICLE',     // Particle system commands
+    30: 'SFX'           // Sound effects via sfxr.js
 };
 
 // Zentrales RetroConsole-Objekt global anlegen, falls noch nicht vorhanden
@@ -1312,6 +1313,10 @@ Object.assign(window.RetroConsole, {
             case 'PARTICLE':
                 // Handle PARTICLE messages (CREATE, MOVE, SHOW, HIDE, GRAVITY)
                 this.handleParticleMessage(response);
+                break;
+            case 'SFX':
+                // Handle SFX messages (PLAYSFX)
+                this.handleSFXMessage(response);
                 break;
                 
             default:
@@ -2814,6 +2819,37 @@ Object.assign(window.RetroConsole, {
                 break;
             default:
                 console.warn('[RetroConsole-PARTICLE] Unknown particle command:', response.command);
+        }
+    },
+    
+    // Handle SFX messages for PLAYSFX commands
+    handleSFXMessage: function(response) {
+        // Initialize sfxManager inline if it doesn't exist
+        if (!window.sfxManager) {
+            console.warn('[RetroConsole-SFX] sfxManager not available, creating fallback...');
+            
+            // Create minimal fallback sfxManager
+            window.sfxManager = {
+                handleSFXCommand: function(data) {
+                    console.log('[SFX-FALLBACK] SFX command:', data);
+                }
+            };
+        }
+        
+        try {
+            // Forward the SFX command to sfxManager
+            if (window.sfxManager && typeof window.sfxManager.handleSFXCommand === 'function') {
+                // Create data structure expected by sfxManager
+                const sfxData = {
+                    command: response.command,
+                    data: response.params
+                };
+                window.sfxManager.handleSFXCommand(sfxData);
+            } else {
+                console.warn('[RetroConsole-SFX] sfxManager.handleSFXCommand not available');
+            }
+        } catch (error) {
+            console.error('[RetroConsole-SFX] Error handling SFX command:', error);
         }
     },
     

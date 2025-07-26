@@ -1537,6 +1537,10 @@ func (b *TinyBASIC) executeSingleStatementInternal(statement string, ctx context
 		// Handle PARTICLE subcommands
 		err := b.handleParticleCommand(args)
 		return physicalNextLine, err
+	case "PLAYSFX":
+		// Handle PLAYSFX command
+		err := b.handlePlaySFXCommand(args)
+		return physicalNextLine, err
 	default:
 		// Check if it's an implicit LET statement (e.g., A=10)
 		// The original BASIC often allowed LET to be omitted.
@@ -1560,7 +1564,7 @@ func isKnownCommand(cmd string) bool {
 		"OPEN", "CLOSE", "PRINT#", "INPUT#", "LINE INPUT#", "EOF", "DATA", "READ", "RESTORE",
 		"DIM", "SPRITE", "SPRITE ON", "SPRITE OFF", "SPRITE AT", "SPRITE COLOR", "SPRITE DEL", "SPRITE LOAD", "SPRITE SAVE",
 		"VECTOR", "VECTOR.SCALE", "VECTOR.HIDE", "VECTOR.SHOW", "VECTOR ON", "VECTOR OFF", "VECTOR AT", "VECTOR COLOR", "VECTOR DEL", "VECTOR LOAD", "VECTOR SAVE",
-		"SYSTEM", "SYS", "WAIT", "IMAGE", "PARTICLE",
+		"SYSTEM", "SYS", "WAIT", "IMAGE", "PARTICLE", "PLAYSFX",
 	}
 	for _, known := range knownCmds {
 		if cmd == known {
