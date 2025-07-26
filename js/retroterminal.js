@@ -474,6 +474,10 @@ function setupInputHandling() {
                             content: window.RetroConsole.input
                         };
                         if (sendMessageWithSessionID(inputMessage)) {
+                            // Add command to history for chess mode
+                            if (window.RetroConsole && typeof window.RetroConsole.addToHistory === 'function') {
+                                window.RetroConsole.addToHistory(window.RetroConsole.input);
+                            }
                             // Input zurücksetzen NACH dem Senden
                             window.RetroConsole.input = "";
                             window.RetroConsole.cursorPos = 0;
@@ -496,6 +500,10 @@ function setupInputHandling() {
                         };
                         
                         if (sendMessageWithSessionID(inputMessage)) {
+                            // Add command to history for board mode (but not empty inputs)
+                            if (trimmedInput !== "" && window.RetroConsole && typeof window.RetroConsole.addToHistory === 'function') {
+                                window.RetroConsole.addToHistory(originalInput);
+                            }
                             // Input zurücksetzen NACH dem Senden
                             window.RetroConsole.input = "";
                             window.RetroConsole.cursorPos = 0;
@@ -541,7 +549,10 @@ function setupInputHandling() {
                     }
                     
                     if (sendMessageWithSessionID(inputMessage)) {
-
+                        // Add command to history if it was sent successfully
+                        if (window.RetroConsole && typeof window.RetroConsole.addToHistory === 'function') {
+                            window.RetroConsole.addToHistory(window.RetroConsole.input);
+                        }
                     }
                     
                     // Eingabe zurücksetzen NACH dem Hinzufügen zur Historie
@@ -574,6 +585,26 @@ function setupInputHandling() {
                 if (window.RetroConsole.cursorPos > 0) {
                     window.RetroConsole.cursorPos--;
                     window.RetroConsole.drawTerminal();
+                }
+                break;
+            case 'ArrowUp':
+                // Im RUN-Modus keine Terminal-Eingaben erlauben
+                if (window.RetroConsole.runMode) {
+                    return;
+                }
+                // Navigate command history backwards
+                if (window.RetroConsole && typeof window.RetroConsole.navigateHistory === 'function') {
+                    window.RetroConsole.navigateHistory('up');
+                }
+                break;
+            case 'ArrowDown':
+                // Im RUN-Modus keine Terminal-Eingaben erlauben
+                if (window.RetroConsole.runMode) {
+                    return;
+                }
+                // Navigate command history forwards
+                if (window.RetroConsole && typeof window.RetroConsole.navigateHistory === 'function') {
+                    window.RetroConsole.navigateHistory('down');
                 }
                 break;            case 'ArrowRight':
                 // Im RUN-Modus keine Terminal-Eingaben erlauben

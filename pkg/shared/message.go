@@ -34,6 +34,7 @@ const (
 	MessageTypeEvil         MessageType = 26 // Evil effect - dramatic noise increase for MCP
 	MessageTypeAuthRefresh  MessageType = 27 // Auth token refresh required (for temporary users)
 	MessageTypeImage        MessageType = 28 // Image commands (LOAD, SHOW, HIDE, ROTATE)
+	MessageTypeParticle     MessageType = 29 // Particle system commands
 
 	// MessageTypeError könnte hier mit einem Wert außerhalb des Frontend-Bereichs definiert werden, falls benötigt
 	// z.B. MessageTypeError MessageType = 100

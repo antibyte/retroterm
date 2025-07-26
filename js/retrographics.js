@@ -523,6 +523,11 @@ function initGraphicsPipeline(textCanvasSource, textTextureSource) {
         window.imageManager.initImageManager();
     }
     
+    // Initialize particleManager if available
+    if (window.particleManager && typeof window.particleManager.initParticleManager === 'function') {
+        window.particleManager.initParticleManager();
+    }
+    
     // 5. Setup Post-Processing Scene
     postProcessingScene = new THREE.Scene();
     orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -702,8 +707,9 @@ function animateCRT() {
         const vectorsNeedUpdate = window.RetroGraphics && window.RetroGraphics._vectorsDirty;
         const graphics2DNeedUpdate = window.RetroGraphics && window.RetroGraphics._graphics2DDirty;
         const imagesNeedUpdate = window.RetroGraphics && window.RetroGraphics._imagesDirty;
+        const particlesNeedUpdate = window.RetroGraphics && window.RetroGraphics._particlesDirty;
         
-        if (spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate || imagesNeedUpdate) {
+        if (spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate || imagesNeedUpdate || particlesNeedUpdate) {
             // Clear the graphics canvas for this frame
             persistentGraphicsContext.clearRect(0, 0, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
               // Render sprites if spriteManager is available and sprites need update
@@ -733,6 +739,15 @@ function animateCRT() {
                 window.RetroGraphics._imagesDirty = false;
             }
             
+            // Always render particles if particleManager is available
+            // (particles have their own continuous update/animation loop)
+            if (window.particleManager && typeof window.particleManager.renderParticles === 'function') {
+                window.particleManager.renderParticles(persistentGraphicsContext, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
+            }
+            
+            // Don't reset particle dirty flag - particles need continuous animation
+            // The particleManager will manage its own dirty state based on active particles
+            
             // Copy persistent2D graphics to main graphics canvas if needed
             if (persistent2DCanvas && persistent2DContext) {
                 persistentGraphicsContext.drawImage(persistent2DCanvas, 0, 0);
@@ -747,7 +762,7 @@ function animateCRT() {
         }
         
         // Always update the graphics texture if any graphics content changed
-        if ((spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate || imagesNeedUpdate) && graphicsSpriteTexture) {
+        if ((spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate || imagesNeedUpdate || particlesNeedUpdate) && graphicsSpriteTexture) {
             graphicsSpriteTexture.needsUpdate = true;
         }
     }
@@ -979,6 +994,11 @@ function handleClearScreen() {
       // Clear sprites - nur Instanzen löschen, Definitionen behalten
     if (window.spriteManager && typeof window.spriteManager.clearActiveSpriteInstances === 'function') {
         window.spriteManager.clearActiveSpriteInstances();
+    }
+    
+    // Clear particles - alle aktiven Emitter stoppen
+    if (window.particleManager && typeof window.particleManager.clearAllParticles === 'function') {
+        window.particleManager.clearAllParticles();
     }
     
     // Setze Dirty-Flag für sofortige Anzeige des Clear-Vorgangs

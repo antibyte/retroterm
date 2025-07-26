@@ -29,6 +29,7 @@ const config = {
         'spriteManager.js', 
         'vectorManager.js',
         'imageManager.js',
+        'particleManager.js',
         'retrosound.js',
         'sidPlayer.js',
         'ansiParser.js',

@@ -48,7 +48,8 @@ const RESPONSE_TYPE_MAP = {
     25: 'BITMAP',       // Bitmap-Übertragung (PNG) mit Platzierung/Skalierung/Rotation
     26: 'EVIL',         // Evil effect - dramatic noise increase for MCP
     27: 'AUTH_REFRESH', // Auth token refresh required
-    28: 'IMAGE'         // Image commands (LOAD, SHOW, HIDE, ROTATE)
+    28: 'IMAGE',        // Image commands (LOAD, SHOW, HIDE, ROTATE)
+    29: 'PARTICLE'      // Particle system commands
 };
 
 // Zentrales RetroConsole-Objekt global anlegen, falls noch nicht vorhanden
@@ -63,6 +64,11 @@ Object.assign(window.RetroConsole, {
     input: "",
     cursorPos: 0,    inputEnabled: true, // Standard: Eingabe aktiviert
     inputMode: 0,       // 0: OS_SHELL, 1: BASIC, 2: CHESS, 3: EDITOR, 4: TELNET, 5: PAGER
+    
+    // Command history for up/down arrow navigation
+    commandHistory: [],
+    historyIndex: -1,    // -1 means no history selection, 0+ means history position
+    maxHistorySize: 30,
     runMode: false,     // RUN-Modus (INKEY$/Strg+C aktiv, normale Eingabe deaktiviert)
     passwordMode: false, // Passwort-Modus (Eingabe wird als * angezeigt)
     pagerMode: false,   // Pager-Modus (Einzeltasten-Eingabe für CAT-Pager)
@@ -1302,6 +1308,10 @@ Object.assign(window.RetroConsole, {
             case 'IMAGE':
                 // Handle IMAGE messages (LOAD, SHOW, HIDE, ROTATE)
                 this.handleImageMessage(response);
+                break;
+            case 'PARTICLE':
+                // Handle PARTICLE messages (CREATE, MOVE, SHOW, HIDE, GRAVITY)
+                this.handleParticleMessage(response);
                 break;
                 
             default:
@@ -2755,6 +2765,58 @@ Object.assign(window.RetroConsole, {
         }
     },
     
+    // Handle particle messages for PARTICLE commands
+    handleParticleMessage: function(response) {
+        // Initialize particleManager inline if it doesn't exist
+        if (!window.particleManager) {
+            console.warn('[RetroConsole-PARTICLE] particleManager not available, creating fallback...');
+            
+            // Create minimal fallback particleManager
+            window.particleManager = {
+                handleCreateEmitter: function(data) {
+                    console.log('[PARTICLE-FALLBACK] Create emitter:', data);
+                },
+                handleMoveEmitter: function(data) {
+                    console.log('[PARTICLE-FALLBACK] Move emitter:', data);
+                },
+                handleShowEmitter: function(data) {
+                    console.log('[PARTICLE-FALLBACK] Show emitter:', data);
+                },
+                handleHideEmitter: function(data) {
+                    console.log('[PARTICLE-FALLBACK] Hide emitter:', data);
+                },
+                handleSetGravity: function(data) {
+                    console.log('[PARTICLE-FALLBACK] Set gravity:', data);
+                }
+            };
+        }
+        
+        if (!response.command) {
+            console.warn('[RetroConsole-PARTICLE] No command in particle message');
+            return;
+        }
+        
+        switch (response.command) {
+            case 'CREATE_EMITTER':
+                window.particleManager.handleCreateEmitter(response);
+                break;
+            case 'MOVE_EMITTER':
+                window.particleManager.handleMoveEmitter(response);
+                break;
+            case 'SHOW_EMITTER':
+                window.particleManager.handleShowEmitter(response);
+                break;
+            case 'HIDE_EMITTER':
+                window.particleManager.handleHideEmitter(response);
+                break;
+            case 'SET_GRAVITY':
+                window.particleManager.handleSetGravity(response);
+                break;
+            default:
+                console.warn('[RetroConsole-PARTICLE] Unknown particle command:', response.command);
+        }
+    },
+    
     refreshTokenForSession: async function(sessionId) {
         // console.log('[RetroConsole-TOKEN] Refreshing token for session:', sessionId);
         
@@ -2796,6 +2858,61 @@ Object.assign(window.RetroConsole, {
             }
         } else {
             console.warn('[RetroConsole-TOKEN] Auth manager not available for token refresh');
+        }
+    },
+    
+    // Command History Functions
+    addToHistory: function(command) {
+        // Don't add empty commands or commands that are identical to the last one
+        if (!command.trim() || (this.commandHistory.length > 0 && this.commandHistory[this.commandHistory.length - 1] === command.trim())) {
+            return;
+        }
+        
+        // Add to history
+        this.commandHistory.push(command.trim());
+        
+        // Limit history size
+        if (this.commandHistory.length > this.maxHistorySize) {
+            this.commandHistory.shift(); // Remove oldest entry
+        }
+        
+        // Reset history index
+        this.historyIndex = -1;
+    },
+    
+    navigateHistory: function(direction) {
+        if (this.commandHistory.length === 0) {
+            return;
+        }
+        
+        if (direction === 'up') {
+            // Go backwards in history (newer to older)
+            if (this.historyIndex === -1) {
+                // First time accessing history - go to most recent
+                this.historyIndex = this.commandHistory.length - 1;
+            } else if (this.historyIndex > 0) {
+                this.historyIndex--;
+            }
+        } else if (direction === 'down') {
+            // Go forwards in history (older to newer)
+            if (this.historyIndex !== -1) {
+                this.historyIndex++;
+                if (this.historyIndex >= this.commandHistory.length) {
+                    // Past the end - clear input
+                    this.historyIndex = -1;
+                    this.input = "";
+                    this.cursorPos = 0;
+                    this.drawTerminal();
+                    return;
+                }
+            }
+        }
+        
+        // Load command from history
+        if (this.historyIndex !== -1 && this.historyIndex < this.commandHistory.length) {
+            this.input = this.commandHistory[this.historyIndex];
+            this.cursorPos = this.input.length; // Move cursor to end
+            this.drawTerminal();
         }
     }
 });

@@ -344,10 +344,16 @@ func (os *TinyOS) cmdCat(args []string) []shared.Message {
 	logger.Debug(logger.AreaTerminal, "CAT COMMAND: Processing file %s for session %s, original_lines=%d, wrapped_lines=%d", fileArg, sessionID, len(strings.Split(content, "\n")), len(lines))
 
 	if len(lines) <= pageSize {
-		// Small file - display all content at once
+		// Small file - display all content at once without prompt
 		logger.Debug(logger.AreaTerminal, "CAT SMALL FILE: File %s has %d lines, showing all content", fileArg, len(lines))
 		wrappedContent := strings.Join(lines, "\n")
-		return os.CreateWrappedTextMessage(sessionID, wrappedContent)
+		// Get proper prompt for this session
+		promptText := os.GetPromptForSession(sessionID)
+		
+		return []shared.Message{
+			{Type: shared.MessageTypeText, Content: wrappedContent},
+			{Type: shared.MessageTypeText, Content: promptText, NoNewline: true},
+		}
 	}
 	// Large file - use pager
 	logger.Debug(logger.AreaTerminal, "CAT PAGER INIT: Creating pager state for session %s, file %s, lines=%d",

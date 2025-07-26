@@ -578,13 +578,12 @@ func (os *TinyOS) handleCatPagerInput(input string, sessionID string) []shared.M
 		delete(os.catPagerStates, sessionID)
 		os.catPagerMutex.Unlock()
 
-		// Get username for proper prompt
-		promptText := os.GetPromptForSession(sessionID)
+		// Get username for proper prompt (no longer needed after quit fix)
+		// promptText := os.GetPromptForSession(sessionID)
 
 		return []shared.Message{
 			{Type: shared.MessageTypeEditor, EditorCommand: "status", EditorStatus: ""}, // Clear status line
 			{Type: shared.MessageTypePager, Content: "deactivate"},                      // Tell frontend to exit pager mode
-			{Type: shared.MessageTypeText, Content: promptText, NoNewline: true},        // OS prompt without newline
 		}
 	} else if input == "m" || input == "more" || input == "" || input == " " || input == "\r" || input == "\n" {
 		// Show more - display next page (m, more, empty, SPACE, ENTER)
