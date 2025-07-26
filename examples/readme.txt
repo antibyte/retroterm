@@ -164,6 +164,33 @@ SPRITE GRAPHICS (32x32 pixel sprites):
   VECTOR.HIDE id - Hide vector object (make invisible)
   VECTOR.SHOW id - Show vector object (make visible)
 
+3D FLOOR RENDERING:
+  VECFLOOR id, x, y, z, rotX, rotY, rotZ, gridWidth, gridDepth, spacing [, brightness]
+    id: Floor object ID (0-255)
+    x, y, z: Position of floor center in 3D space
+    rotX, rotY, rotZ: Rotation angles in degrees
+    gridWidth, gridDepth: Number of grid lines (1-256)
+    spacing: Distance between grid lines
+    brightness: 0-15 (default: 15)
+  VECNODE gridX, gridZ, height - Modify height of specific grid point
+    gridX, gridZ: Grid coordinates (0-255)
+    height: Height adjustment for this grid point
+
+PARTICLE SYSTEM (Physics simulation with up to 16 emitters):
+  PARTICLE CREATE id, type [, pps] [, speed] [, lifetime] - Create particle emitter
+    id: Emitter ID (1-16)
+    type: "point", "star", "circle", "rect" (emission pattern)
+    pps: Particles per second (default: 20)
+    speed: Initial particle velocity (default: 50)
+    lifetime: Particle lifespan in seconds (default: 3.0)
+  PARTICLE MOVE id, x, y - Position and activate emitter
+  PARTICLE SHOW id - Make emitter visible and active
+  PARTICLE HIDE id - Hide emitter and stop emission
+  PARTICLE GRAVITY value - Set global gravity (-255 to 255)
+    Positive values: particles fall down
+    Negative values: particles fly upward (anti-gravity)
+    Zero: no gravity effect
+
 FILE INPUT/OUTPUT:
   OPEN #handle, "filename", "INPUT" - Open file for reading
   OPEN #handle, "filename", "OUTPUT" - Open file for writing
@@ -207,6 +234,19 @@ SAMPLE PROGRAMS:
   10 SOUND 440, 500
   20 SAY "SYSTEM OPERATIONAL"
   30 END
+
+  Particle Fountain:
+  10 PARTICLE CREATE 1, star, 30, 40, 2.5
+  20 PARTICLE MOVE 1, 320, 400
+  30 PARTICLE GRAVITY -80
+  40 PARTICLE SHOW 1
+  50 END
+
+  3D Scene with Floor:
+  10 VECFLOOR 1, 0, -3, 0, 0, 0, 0, 10, 10, 2, 8
+  20 VECTOR 1, "cube", 0, 0, -5, 0, 0, 0, 1.5, 12
+  30 VECNODE 5, 5, 1.5
+  40 END
 
 ================================================================================
 IMPORTANT NOTES

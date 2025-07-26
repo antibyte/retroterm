@@ -13,6 +13,7 @@ const (
 	MaxParticleEmitters = 16
 	MaxParticlesPerSecond = 255
 	MaxGravity = 255
+	MinGravity = -255  // Negative gravity for upward particle movement
 )
 
 // ParticleType represents different particle emission patterns
@@ -297,7 +298,7 @@ func (b *TinyBASIC) handleParticleGravity(args []string) error {
 	if len(args) == 0 {
 		return NewBASICError(ErrCategoryCommand, "PARTICLE_GRAVITY_MISSING_VALUE", b.currentLine == 0, b.currentLine).
 			WithCommand("PARTICLE GRAVITY").
-			WithUsageHint("PARTICLE GRAVITY value (0-255)")
+			WithUsageHint("PARTICLE GRAVITY value (-255 to 255)")
 	}
 
 	// Parse gravity using expression evaluator to handle variables
@@ -305,14 +306,14 @@ func (b *TinyBASIC) handleParticleGravity(args []string) error {
 	if err != nil || !gravityVal.IsNumeric {
 		return NewBASICError(ErrCategoryEvaluation, "PARTICLE_INVALID_GRAVITY", b.currentLine == 0, b.currentLine).
 			WithCommand("PARTICLE GRAVITY").
-			WithUsageHint("Gravity must be a valid expression (0-255)")
+			WithUsageHint("Gravity must be a valid expression (-255 to 255)")
 	}
 	
 	gravity := int(gravityVal.NumValue)
-	if gravity < 0 || gravity > MaxGravity {
+	if gravity < MinGravity || gravity > MaxGravity {
 		return NewBASICError(ErrCategoryEvaluation, "PARTICLE_INVALID_GRAVITY", b.currentLine == 0, b.currentLine).
 			WithCommand("PARTICLE GRAVITY").
-			WithUsageHint(fmt.Sprintf("Gravity must be 0-%d", MaxGravity))
+			WithUsageHint(fmt.Sprintf("Gravity must be %d to %d", MinGravity, MaxGravity))
 	}
 
 	gravityData := map[string]interface{}{

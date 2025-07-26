@@ -334,8 +334,17 @@ function handleSetGravity(data) {
 
 // Clear all emitters and particles
 function clearAllParticles() {
-    particleEmitters = [];
+    // Nur Partikel löschen, Emitter-Definitionen behalten
     particles = [];
+    
+    // Alle Emitter auf "hidden" setzen aber nicht löschen
+    particleEmitters.forEach(emitter => {
+        if (emitter) {
+            emitter.visible = false;
+            emitter.particles = [];
+        }
+    });
+    
     globalGravity = 0;
     window.RetroGraphics._particlesDirty = true;
 }
