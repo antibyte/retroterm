@@ -1197,3 +1197,107 @@ function debugDirectDraw() {
 }
 
 window.debugDirectDraw = debugDirectDraw;
+
+// 2D Physics Integration System
+// Store 2D graphics objects that can be moved by physics
+window.RetroGraphics._physicsObjects = new Map(); // id -> { type, originalData, currentX, currentY }
+
+// Function to register a 2D graphics object for physics updates
+window.RetroGraphics.registerPhysicsObject = function(id, type, data) {
+    this._physicsObjects.set(id, {
+        type: type,
+        originalData: { ...data },
+        currentX: data.x,
+        currentY: data.y,
+        rotation: 0
+    });
+    console.log(`[RETROGRAPHICS] Registered physics object ${id} of type ${type} at (${data.x}, ${data.y})`);
+    console.log(`[RETROGRAPHICS] Total physics objects: ${this._physicsObjects.size}`);
+};
+
+// Function to update a 2D graphics object position from physics
+window.RetroGraphics.updatePhysicsObject = function(id, newX, newY, rotation = 0) {
+    const obj = this._physicsObjects.get(id);
+    if (!obj) {
+        console.warn(`[RETROGRAPHICS] Physics object ${id} not found for update`);
+        return;
+    }
+    
+    // Update position
+    obj.currentX = newX;
+    obj.currentY = newY;
+    obj.rotation = rotation;
+    
+    // Trigger redraw of all physics objects
+    this.redrawPhysicsObjects();
+};
+
+// Function to redraw all physics-controlled 2D objects
+window.RetroGraphics.redrawPhysicsObjects = function() {
+    if (!persistent2DCanvas || !persistent2DContext) {
+        console.warn("[RETROGRAPHICS] Canvas not available for physics redraw");
+        return;
+    }
+    
+    console.log(`[RETROGRAPHICS] Redrawing ${this._physicsObjects.size} physics objects`);
+    
+    // Clear only the dynamic objects area (or full canvas for simplicity)
+    const ctx = persistent2DContext;
+    
+    // For now, we'll clear the entire canvas and redraw everything
+    // This is simple but not optimal - could be improved with layers
+    ctx.clearRect(0, 0, persistent2DCanvas.width, persistent2DCanvas.height);
+    
+    // Redraw all physics objects at their current positions
+    for (const [id, obj] of this._physicsObjects) {
+        const data = {
+            ...obj.originalData,
+            x: obj.currentX,
+            y: obj.currentY
+        };
+        
+        console.log(`[RETROGRAPHICS] Redrawing ${obj.type} ${id} at (${obj.currentX}, ${obj.currentY})`);
+        
+        if (obj.type === 'CIRCLE') {
+            this.drawCircleAtPosition(data);
+        } else if (obj.type === 'RECT') {
+            this.drawRectAtPosition(data);
+        }
+        // Add more types as needed
+    }
+    
+    // Set dirty flag to trigger rendering update
+    this._graphics2DDirty = true;
+    console.log(`[RETROGRAPHICS] Set _graphics2DDirty = true`);
+};
+
+// Helper functions to draw specific shapes
+window.RetroGraphics.drawCircleAtPosition = function(data) {
+    const ctx = persistent2DContext;
+    let color = getColorFromData(data);
+    
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(Math.floor(data.x), Math.floor(data.y), Math.floor(data.radius), 0, 2 * Math.PI);
+    
+    if (data.fill) {
+        ctx.fill();
+    } else {
+        ctx.stroke();
+    }
+};
+
+window.RetroGraphics.drawRectAtPosition = function(data) {
+    const ctx = persistent2DContext;
+    let color = getColorFromData(data);
+    
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    
+    if (data.fill) {
+        ctx.fillRect(Math.floor(data.x), Math.floor(data.y), Math.floor(data.width), Math.floor(data.height));
+    } else {
+        ctx.strokeRect(Math.floor(data.x), Math.floor(data.y), Math.floor(data.width), Math.floor(data.height));
+    }
+};

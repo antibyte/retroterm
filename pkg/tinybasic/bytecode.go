@@ -648,6 +648,9 @@ func (c *BytecodeCompiler) compileStatement(stmt string) error {
 	case "RANDOMIZE":
 		return c.compileRandomize(args)
 
+	case "PHYSICS":
+		return c.compilePhysics(args)
+
 	default:
 		// Unknown command - emit as function call
 		return c.compileFunction(command, args)
@@ -1291,13 +1294,9 @@ func (c *BytecodeCompiler) compileVector(args string) error {
 		return fmt.Errorf("VECTOR requires arguments")
 	}
 
-	// For VECTOR, we need to handle variable argument count
-	// Just compile the entire argument string as a single expression for now
-	// The VM will handle the complex parsing
-	err := c.compileExpression(fmt.Sprintf("\"%s\"", args))
-	if err != nil {
-		return fmt.Errorf("error compiling VECTOR arguments: %v", err)
-	}
+	// For VECTOR, we push the raw argument string as-is
+	// The VM will handle the parsing
+	c.EmitConstant(BASICValue{IsNumeric: false, StrValue: args})
 
 	// Emit VECTOR instruction
 	c.Emit(OP_VECTOR)
@@ -1696,6 +1695,19 @@ func (inst Instruction) String() string {
 	default:
 		return string(inst.OpCode)
 	}
+}
+
+// compilePhysics compiles PHYSICS statements
+func (c *BytecodeCompiler) compilePhysics(args string) error {
+	// PHYSICS commands need to be delegated to the TinyBASIC interpreter
+	// because they involve complex state management and frontend communication
+	// We emit a fallback instruction that will be handled by the VM
+	
+	// Add the arguments string to constants and push it onto the stack
+	c.EmitConstant(args)
+	// Call the PHYSICS function with 1 argument (function name, arg count)
+	c.Emit(OP_CALL_FUNC, "PHYSICS", 1)
+	return nil
 }
 
 // String returns string representation of an opcode

@@ -3385,6 +3385,34 @@ func (vm *BytecodeVM) callBuiltinFunction(funcName string, argCount int) error {
 		}
 		return nil
 
+	case "PHYSICS":
+		// PHYSICS commands - delegate to TinyBASIC physics system
+		if argCount != 1 {
+			return fmt.Errorf("PHYSICS requires 1 argument (argument string), got %d", argCount)
+		}
+		
+		// Pop the arguments string from stack
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		
+		var argsStr string
+		if arg.IsNumeric {
+			argsStr = fmt.Sprintf("%.0f", arg.NumValue)
+		} else {
+			argsStr = arg.StrValue
+		}
+		
+		// Execute physics command via TinyBASIC interpreter
+		if vm.tinybasic != nil {
+			err := vm.tinybasic.handlePhysicsCommand(argsStr)
+			if err != nil {
+				return fmt.Errorf("PHYSICS command error: %v", err)
+			}
+		}
+		return nil
+
 	default:
 		// For complex functions, fall back to TinyBASIC
 		// This is not ideal but ensures compatibility

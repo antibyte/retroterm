@@ -342,6 +342,11 @@ func (b *TinyBASIC) cmdSprite(args string) error {
 		return b.cmdDefineVirtualSprite(strings.TrimSpace(args[7:])) // Nach "VIRTUAL " abschneiden
 	}
 
+	if strings.HasPrefix(upperArgs, "PHYSICS ") {
+		// Handle SPRITE PHYSICS command
+		return b.handleSpritePhysicsCommand(strings.TrimSpace(args[8:])) // Nach "PHYSICS " abschneiden
+	}
+
 	// Standard SPRITE-Befehl (Definition)
 	// fmt.Printf("[DEBUG-SPRITE] SPRITE DEFINE command detected\n")
 	return b.cmdDefineSprite(args)

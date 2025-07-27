@@ -35,6 +35,8 @@ const config = {
         'riffwave.js',
         'sfxr.js',
         'sfxManager.js',
+        'planck.min.js',
+        'physicsManager.js',
         'ansiParser.js',
         'auth.js',
         'retroconsole.js',

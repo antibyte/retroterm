@@ -36,6 +36,7 @@ const (
 	MessageTypeImage        MessageType = 28 // Image commands (LOAD, SHOW, HIDE, ROTATE)
 	MessageTypeParticle     MessageType = 29 // Particle system commands
 	MessageTypeSFX          MessageType = 30 // Sound effects via sfxr.js
+	MessageTypePhysics      MessageType = 31 // Physics commands via Planck.js
 
 	// MessageTypeError könnte hier mit einem Wert außerhalb des Frontend-Bereichs definiert werden, falls benötigt
 	// z.B. MessageTypeError MessageType = 100

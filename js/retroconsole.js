@@ -50,7 +50,8 @@ const RESPONSE_TYPE_MAP = {
     27: 'AUTH_REFRESH', // Auth token refresh required
     28: 'IMAGE',        // Image commands (LOAD, SHOW, HIDE, ROTATE)
     29: 'PARTICLE',     // Particle system commands
-    30: 'SFX'           // Sound effects via sfxr.js
+    30: 'SFX',          // Sound effects via sfxr.js
+    31: 'PHYSICS'       // Physics commands via Planck.js
 };
 
 // Zentrales RetroConsole-Objekt global anlegen, falls noch nicht vorhanden
@@ -1317,6 +1318,10 @@ Object.assign(window.RetroConsole, {
             case 'SFX':
                 // Handle SFX messages (PLAYSFX)
                 this.handleSFXMessage(response);
+                break;
+            case 'PHYSICS':
+                // Handle PHYSICS messages
+                this.handlePhysicsMessage(response);
                 break;
                 
             default:
@@ -2850,6 +2855,37 @@ Object.assign(window.RetroConsole, {
             }
         } catch (error) {
             console.error('[RetroConsole-SFX] Error handling SFX command:', error);
+        }
+    },
+    
+    // Handle PHYSICS messages for physics commands
+    handlePhysicsMessage: function(response) {
+        // Initialize physicsManager inline if it doesn't exist
+        if (!window.physicsManager) {
+            console.warn('[RetroConsole-PHYSICS] physicsManager not available, creating fallback...');
+            
+            // Create minimal fallback physicsManager
+            window.physicsManager = {
+                handleCommand: function(data) {
+                    console.log('[PHYSICS-FALLBACK] Physics command:', data);
+                }
+            };
+        }
+        
+        try {
+            // Forward the physics command to physicsManager
+            if (window.physicsManager && typeof window.physicsManager.handleCommand === 'function') {
+                // Create data structure expected by physicsManager
+                const physicsData = {
+                    command: response.command,
+                    params: response.params
+                };
+                window.physicsManager.handleCommand(physicsData);
+            } else {
+                console.warn('[RetroConsole-PHYSICS] physicsManager.handleCommand not available');
+            }
+        } catch (error) {
+            console.error('[RetroConsole-PHYSICS] Error handling physics command:', error);
         }
     },
     
