@@ -543,10 +543,10 @@ func (os *TinyOS) handleLoginUsernameInput(input string, sessionID string, state
 
 // handleLoginPasswordInput processes password input during login
 func (os *TinyOS) handleLoginPasswordInput(input string, sessionID string, state *LoginState) []shared.Message {
-	password := strings.TrimSpace(input)
+	inputPass := strings.TrimSpace(input)
 
 	// Handle Ctrl+C (break signal) - cancel login
-	if password == "__BREAK__" {
+	if inputPass == "__BREAK__" {
 		os.loginMutex.Lock()
 		delete(os.loginStates, sessionID)
 		os.loginMutex.Unlock()
@@ -558,7 +558,7 @@ func (os *TinyOS) handleLoginPasswordInput(input string, sessionID string, state
 		}
 	}
 
-	if password == "" {
+	if inputPass == "" {
 		return []shared.Message{
 			{Type: shared.MessageTypeText, Content: "Error: Password cannot be empty."},
 			{Type: shared.MessageTypeText, Content: ""},
@@ -575,7 +575,7 @@ func (os *TinyOS) handleLoginPasswordInput(input string, sessionID string, state
 	delete(os.loginStates, sessionID)
 	os.loginMutex.Unlock()
 	// Perform login via the LoginUser method
-	messages, newSessionID, err := os.LoginUser(username, password, ipAddress)
+	messages, newSessionID, err := os.LoginUser(username, inputPass, ipAddress)
 	if err != nil {
 		return []shared.Message{
 			{Type: shared.MessageTypeInputControl, Content: "password_mode_off"}, // Disable password mode
