@@ -207,17 +207,28 @@ func (b *TinyBASIC) cmdInput(args string) error {
 		return NewBASICError(ErrCategorySyntax, "EXPECTED_VARIABLE", b.currentLine == 0, b.currentLine).WithCommand("INPUT")
 	}
 
-	// For simplicity, handle only one variable per INPUT for now.
-	// TODO: Extend INPUT to handle multiple comma-separated variables if needed.
-	varName := getCachedVarName(strings.TrimSpace(varListStr))
-	if strings.Contains(varName, ",") {
-		return NewBASICError(ErrCategorySyntax, "UNEXPECTED_TOKEN", b.currentLine == 0, b.currentLine).WithCommand("INPUT")
-	}
-	if !isValidVarName(varName) {
+	// Parse the variable list, handling multiple comma-separated variables.
+	vars := SplitInputList(varListStr)
+	if len(vars) == 0 {
 		return NewBASICError(ErrCategorySyntax, "EXPECTED_VARIABLE", b.currentLine == 0, b.currentLine).WithCommand("INPUT")
 	}
 
-	b.inputVar = varName                                 // Set flag indicating interpreter is waiting.
+	// Validate all variables
+	var validVars []string
+	for _, v := range vars {
+		v = strings.TrimSpace(v)
+		if !isValidVarName(v) {
+			return NewBASICError(ErrCategorySyntax, "EXPECTED_VARIABLE", b.currentLine == 0, b.currentLine).WithCommand("INPUT")
+		}
+		validVars = append(validVars, getCachedVarName(v))
+	}
+
+	b.inputVar = validVars[0] // Set flag indicating interpreter is waiting for first variable.
+	if len(validVars) > 1 {
+		b.remainingInputVars = validVars[1:] // Queue remaining variables
+	} else {
+		b.remainingInputVars = nil
+	}
 	b.sendInputControl("disable")                        // Signal frontend to disable normal input handling.
 	b.sendMessageWrapped(shared.MessageTypeText, prompt) // Send prompt.
 
