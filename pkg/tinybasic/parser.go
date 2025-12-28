@@ -709,10 +709,34 @@ func (p *exprParser) parseUnary() (BASICValue, error) {
 	return p.parseFactor() // No unary op, parse factor directly.
 }
 
-// parseFactor: factor = primary [^ factor] (Exponentiation NYI)
+// parseFactor: factor = primary [^ factor]
 func (p *exprParser) parseFactor() (BASICValue, error) {
-	// TODO: Implement exponentiation (^) if needed. Requires right-associativity handling.
-	return p.parsePrimary()
+	left, err := p.parsePrimary()
+	if err != nil {
+		return left, err
+	}
+
+	tok := p.peek()
+	if tok.typ == tokOp && tok.val == "^" {
+		p.next() // consume ^
+
+		// Exponentiation is right-associative: 2^3^2 = 2^(3^2)
+		// We call parseUnary recursively for the right side to handle:
+		// 1. Right associativity (parseUnary -> parseFactor -> ... -> rightmost ^)
+		// 2. Unary operators in exponent (e.g., 2^-3)
+		right, err := p.parseUnary()
+		if err != nil {
+			return left, err
+		}
+
+		if !left.IsNumeric || !right.IsNumeric {
+			return BASICValue{}, fmt.Errorf("%w: exponentiation requires numeric operands", ErrTypeMismatch)
+		}
+
+		left.NumValue = math.Pow(left.NumValue, right.NumValue)
+	}
+
+	return left, nil
 }
 
 // parsePrimary: number | string | ident | functionCall | (comparison) | #number
