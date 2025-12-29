@@ -270,6 +270,7 @@ func (b *TinyBASIC) ResetExecutionState() {
 	b.currentLine = 0
 	b.running = false
 	b.inputVar = ""
+	b.remainingInputVars = nil
 	b.waitingForMCPInput = false // Clear MCP input flag
 	b.pendingMCPCode = ""        // Clear pending MCP code
 	b.pendingMCPFilename = ""    // Clear pending MCP filename
@@ -316,6 +317,7 @@ type TinyBASIC struct {
 	compiledHash             string                // Hash of compiled program to detect changes
 	currentLine              int                   // The line number currently being executed (0 if not running).
 	inputVar                 string                // Name of the variable waiting for INPUT, empty otherwise.
+	remainingInputVars       []string              // Additional variables waiting for INPUT (for INPUT A, B, C)
 	inputPC                  int                   // Program counter for bytecode VM to resume after INPUT
 	forLoops                 []ForLoopInfo         // Stack for tracking active FOR loops.
 	forLoopIndexMap          map[string]int        // Maps variable names to forLoops indices for O(1) lookup
@@ -596,6 +598,7 @@ func (b *TinyBASIC) StopExecution() []shared.Message {
 	b.running = false
 	b.currentLine = 0
 	b.inputVar = ""                 // Clear pending input
+	b.remainingInputVars = nil
 	b.waitingForMCPInput = false    // Clear MCP input flag
 	b.pendingMCPCode = ""           // Clear pending MCP code
 	b.pendingMCPFilename = ""       // Clear pending MCP filename
@@ -656,6 +659,7 @@ func (b *TinyBASIC) Reset() {
 	b.currentLine = 0
 	b.running = false
 	b.inputVar = ""
+	b.remainingInputVars = nil
 	b.gosubStack = b.gosubStack[:0]
 	b.forLoops = b.forLoops[:0]
 	b.data = make([]string, 0)
@@ -814,31 +818,113 @@ func (b *TinyBASIC) ExecuteInputResponse(input string) []shared.Message {
 		return nil // Message sent via channel
 	}
 
-	varName := b.inputVar
-	// Clear the input request flag *before* potentially resuming or erroring.
-	b.inputVar = ""
+	// Split input string into multiple values (comma separated)
+	inputValues := SplitInputList(input)
 
-	// Assign the input value to the variable.
-	var assignErr error
-	if strings.HasSuffix(varName, "$") { // String variable
-		b.variables[strings.ToUpper(varName)] = BASICValue{StrValue: input, IsNumeric: false}
-	} else { // Numeric variable
-		// Attempt to parse the input as a float.
-		val, err := strconv.ParseFloat(input, 64)
-		if err != nil {
-			// Invalid numeric input: Restore inputVar and prompt again.
-			b.inputVar = varName // Restore the input request flag
-			assignErr = WrapError(ErrInvalidExpression, "INPUT", false, b.currentLine)
+	currentVar := b.inputVar
+	remainingVars := b.remainingInputVars
+
+	// Helper to handle variable assignment and syncing with VM
+	assignVariable := func(name string, valueStr string) error {
+		normalizedName := strings.ToUpper(name)
+		var basicVal BASICValue
+
+		if strings.HasSuffix(normalizedName, "$") {
+			// String variable: Remove surrounding quotes if present
+			if strings.HasPrefix(valueStr, "\"") && strings.HasSuffix(valueStr, "\"") && len(valueStr) >= 2 {
+				valueStr = valueStr[1 : len(valueStr)-1]
+			}
+			basicVal = BASICValue{StrValue: valueStr, IsNumeric: false}
 		} else {
-			b.variables[strings.ToUpper(varName)] = BASICValue{NumValue: val, IsNumeric: true}
+			// Numeric variable
+			val, err := strconv.ParseFloat(valueStr, 64)
+			if err != nil {
+				return WrapError(ErrInvalidExpression, "INPUT", false, b.currentLine)
+			}
+			basicVal = BASICValue{NumValue: val, IsNumeric: true}
+		}
+
+		b.variables[normalizedName] = basicVal
+
+		// If VM is active, update its variables too
+		if b.useBytecode && b.bytecodeVM != nil {
+			b.bytecodeVM.variables[normalizedName] = basicVal
+		}
+
+		return nil
+	}
+
+	// Process inputs
+	inputIndex := 0
+
+	// First handle the current inputVar
+	if inputIndex < len(inputValues) {
+		err := assignVariable(currentVar, inputValues[inputIndex])
+		if err != nil {
+			// Failed assignment (invalid number)
+			b.mu.Unlock()
+			b.sendMessageWrapped(shared.MessageTypeText, "?REDO FROM START")
+			return nil
+		}
+		inputIndex++
+	} else {
+		// No input provided for current var? (Should be handled by caller usually sending non-empty input, but just in case)
+		// Or if user just pressed Enter.
+		// For now, let's treat it as empty string or 0 if empty
+		err := assignVariable(currentVar, "")
+		if err != nil { // For numeric, empty string fails parse
+			b.mu.Unlock()
+			b.sendMessageWrapped(shared.MessageTypeText, "?REDO FROM START")
+			return nil
+		}
+		inputIndex++ // Consumed one empty input
+	}
+
+	// Now handle remaining vars if we have more input values
+	newRemainingVars := make([]string, 0)
+
+	if len(remainingVars) > 0 {
+		for i, nextVar := range remainingVars {
+			if inputIndex < len(inputValues) {
+				err := assignVariable(nextVar, inputValues[inputIndex])
+				if err != nil {
+					b.mu.Unlock()
+					b.sendMessageWrapped(shared.MessageTypeText, "?REDO FROM START")
+					return nil
+				}
+				inputIndex++
+			} else {
+				// We ran out of input values, but still have variables
+				newRemainingVars = append(newRemainingVars, remainingVars[i:]...)
+				break
+			}
 		}
 	}
 
-	if assignErr != nil {
-		// Failed assignment (invalid number) - prompt user again.
-		b.mu.Unlock()                                                    // Unlock before sending message.
-		b.sendMessageWrapped(shared.MessageTypeText, "?REDO FROM START") // Classic BASIC message
+	// Check state
+	if len(newRemainingVars) > 0 {
+		// We still have variables waiting for input
+		b.inputVar = newRemainingVars[0]
+		if len(newRemainingVars) > 1 {
+			b.remainingInputVars = newRemainingVars[1:]
+		} else {
+			b.remainingInputVars = nil
+		}
+
+		// Prompt for more input (double question mark is standard for continuation)
+		b.sendInputControl("enable")
+		b.sendMessageWrapped(shared.MessageTypeText, "?? ")
+		b.mu.Unlock()
 		return nil
+	}
+
+	// All variables satisfied
+	b.inputVar = ""
+	b.remainingInputVars = nil
+
+	// Ignore extra input values (standard BASIC behavior usually ignores them or warns "?EXTRA IGNORED")
+	if inputIndex < len(inputValues) {
+		b.sendMessageWrapped(shared.MessageTypeText, "?EXTRA IGNORED")
 	}
 
 	// Input processed successfully, re-enable terminal input.
@@ -853,21 +939,10 @@ func (b *TinyBASIC) ExecuteInputResponse(input string) []shared.Message {
 			b.inputPC = 0 // Clear stored PC
 			b.mu.Unlock() // Unlock before resuming VM
 			
-			// Convert input to BASICValue
-			var inputValue BASICValue
-			if strings.HasSuffix(varName, "$") {
-				inputValue = newStringBASICValue(input)
-			} else {
-				if val, err := strconv.ParseFloat(input, 64); err == nil {
-					inputValue = newNumericBASICValue(val)
-				} else {
-					inputValue = newNumericBASICValue(0) // Default to 0 for invalid input
-				}
-			}
-			
-			// Resume VM execution
+			// Resume VM execution with dummy values since we updated variables directly
 			go func() {
-				err := b.bytecodeVM.Resume(resumePC, inputValue, varName)
+				// Pass empty varName so Resume doesn't try to update a variable again
+				err := b.bytecodeVM.Resume(resumePC, BASICValue{}, "")
 				if err != nil {
 					b.sendMessageWrapped(shared.MessageTypeText, fmt.Sprintf("Runtime error: %s", err.Error()))
 				}
@@ -1072,6 +1147,7 @@ func (b *TinyBASIC) runProgramInternal(ctx context.Context) {
 			terminatedLine := b.currentLine
 			// CRITICAL: Reset input state on program abort to prevent "?REDO FROM START"
 			b.inputVar = ""
+			b.remainingInputVars = nil
 			b.waitingForMCPInput = false
 			b.pendingMCPCode = ""
 			b.pendingMCPFilename = ""
@@ -2106,6 +2182,7 @@ func (b *TinyBASIC) processMCPFilenameInput(filename string) []shared.Message { 
 	// Ensure no INPUT variables are pending after load
 
 	b.inputVar = ""
+	b.remainingInputVars = nil
 	b.waitingForMCPInput = false
 	b.running = false
 

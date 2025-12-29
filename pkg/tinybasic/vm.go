@@ -2040,14 +2040,31 @@ func (vm *BytecodeVM) executeInstructionLegacyInternal(inst Instruction) error {
 		vm.pc++
 
 	case OP_INPUT:
-		varName := strings.ToUpper(inst.Operand1.(string))
+		varNameStr := strings.ToUpper(inst.Operand1.(string))
+
+		// Parse possible multiple variables
+		vars := SplitInputList(varNameStr)
+		if len(vars) == 0 {
+			// Should not happen if compiled correctly
+			return fmt.Errorf("INPUT requires variable name")
+		}
+
+		validVars := make([]string, len(vars))
+		for i, v := range vars {
+			validVars[i] = strings.ToUpper(strings.TrimSpace(v))
+		}
 
 		// Pause VM execution and delegate to TinyBASIC input handling
 		vm.running = false
 
 		// Set up input state in TinyBASIC
 		vm.tinybasic.mu.Lock()
-		vm.tinybasic.inputVar = varName
+		vm.tinybasic.inputVar = validVars[0]
+		if len(validVars) > 1 {
+			vm.tinybasic.remainingInputVars = validVars[1:]
+		} else {
+			vm.tinybasic.remainingInputVars = nil
+		}
 		vm.tinybasic.waitingInput = true
 		vm.tinybasic.inputPC = vm.pc + 1 // Store where to resume after input
 		vm.tinybasic.mu.Unlock()
