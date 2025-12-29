@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -122,7 +123,7 @@ func main() { // Initialize configuration (before all other initializations)
 	http.HandleFunc("/ws", handler.HandleWebSocket)
 	http.HandleFunc("/chat", handler.HandleChatWebSocket) // Chat WebSocket Route	http.HandleFunc("/cleanup-guest", handler.CleanupGuestSession) // Guest VFS cleanup endpoint
 	// API route for SID files
-	http.HandleFunc("/api/file", serveUserFile(handler))
+	http.HandleFunc("/api/file", serveUserFile(vfs))
 
 	// Static file handlers for assets
 	http.HandleFunc("/floppy.mp3", serveFile("assets/floppy.mp3"))
@@ -319,7 +320,7 @@ func serveFile(filename string) http.HandlerFunc {
 }
 
 // serveUserFile creates a handler for user files
-func serveUserFile(handler *terminal.TerminalHandler) http.HandlerFunc {
+func serveUserFile(vfs *virtualfs.VFS) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Only allow GET requests
 		if r.Method != "GET" {
@@ -331,67 +332,103 @@ func serveUserFile(handler *terminal.TerminalHandler) http.HandlerFunc {
 			http.Error(w, "Missing path parameter", http.StatusBadRequest)
 			return
 		}
-		logger.Info(logger.AreaGeneral, "API File request for: %s", filename)
 
-		// Try to read file from virtual filesystem
-		content, err := os.ReadFile(filename)
-		if err != nil {
-			logger.Debug(logger.AreaGeneral, "File not found in user directory: %s, error: %v", filename, err)
-			// Fallback: Try to read from examples directory
-			if strings.HasSuffix(strings.ToLower(filename), ".sid") || strings.HasSuffix(strings.ToLower(filename), ".bas") { // Try first with exact name
-				examplePath := "examples/" + filename
-				if data, readErr := os.ReadFile(examplePath); readErr == nil {
-					logger.Debug(logger.AreaGeneral, "Found file in examples directory: %s", examplePath)
-					// Set MIME type for SID files
-					if strings.HasSuffix(strings.ToLower(filename), ".sid") {
-						w.Header().Set("Content-Type", "application/octet-stream")
-					} else {
-						w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-					}
-					w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", filename))
-					w.Write(data)
-					return
-				}
-
-				// Try with .sid extension if not present
-				if !strings.HasSuffix(strings.ToLower(filename), ".sid") {
-					examplePathSid := "examples/" + filename + ".sid"
-					if data, readErr := os.ReadFile(examplePathSid); readErr == nil {
-						logger.Debug(logger.AreaGeneral, "Found file in examples directory with .sid extension: %s", examplePathSid)
-						w.Header().Set("Content-Type", "application/octet-stream")
-						w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", filename+".sid"))
-						w.Write(data)
-						return
-					}
-				}
-
-				logger.Debug(logger.AreaGeneral, "File not found in examples directory either: %s", examplePath)
-			}
-
-			logger.Debug(logger.AreaGeneral, "Error reading file %s: %v", filename, err)
-			http.Error(w, "File not found", http.StatusNotFound)
+		// SECURITY: Prevent path traversal in filename parameter
+		// This is a basic check. VFS handles traversal safely, but os.ReadFile fallback needs this.
+		if strings.Contains(filename, "..") || strings.Contains(filename, "\\") {
+			logger.SecurityWarn("Path traversal attempt blocked: %s", filename)
+			http.Error(w, "Invalid path", http.StatusBadRequest)
 			return
 		}
 
-		// Determine MIME type based on file extension
-		var contentType string
-		lowerName := strings.ToLower(filename)
-		switch {
-		case strings.HasSuffix(lowerName, ".sid"):
-			contentType = "application/octet-stream"
-		case strings.HasSuffix(lowerName, ".bas"):
-			contentType = "text/plain; charset=utf-8"
-		case strings.HasSuffix(lowerName, ".txt"):
-			contentType = "text/plain; charset=utf-8"
-		default:
-			contentType = "application/octet-stream"
+		logger.Info(logger.AreaGeneral, "API File request for: %s", filename)
+
+		// Try to extract session ID from request for VFS access
+		tokenString, err := auth.ExtractTokenFromRequest(r)
+		var sessionID string
+		if err == nil {
+			claims, _, err := auth.ValidateToken(tokenString)
+			if err == nil {
+				// Extract session ID
+				if userClaims, ok := claims.(*auth.UserClaims); ok {
+					sessionID = userClaims.SessionID
+				} else if guestClaims, ok := claims.(*auth.GuestClaims); ok {
+					sessionID = guestClaims.SessionID
+				}
+			}
 		}
 
-		// Headers setzen
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", filename))
+		// Try to read file from virtual filesystem
+		contentString, err := vfs.ReadFile(filename, sessionID)
+		if err == nil {
+			// Found in VFS
+			content := []byte(contentString)
+			serveContent(w, filename, content)
+			return
+		}
 
-		// Serve file
-		w.Write([]byte(content))
+		logger.Debug(logger.AreaGeneral, "File not found in user directory: %s, error: %v", filename, err)
+
+		// Fallback: Try to read from examples directory
+		// SECURITY: Use filepath.Base to ensure we only read files from the examples root directory
+		// This prevents any remaining traversal risk if filename passed previous checks
+		baseName := filepath.Base(filename)
+		if baseName != filename {
+			// If filename contains directory separators, and we failed VFS read, we shouldn't fallback
+			// to examples unless we are looking for specific known subdirectories which we don't support here.
+			// But for backward compatibility if examples are flat, we might just look for the base name?
+			// The original code tried "examples/" + filename.
+			// If filename is "dir/file.bas", it looked for "examples/dir/file.bas".
+			// Since examples folder is flat, this would fail anyway.
+			// So relying on baseName is safer and likely correct for flat examples folder.
+			// However, if we want to support "examples/foo.bas" when user requests "foo.bas", baseName is correct.
+		}
+
+		if strings.HasSuffix(strings.ToLower(baseName), ".sid") || strings.HasSuffix(strings.ToLower(baseName), ".bas") {
+			// Try first with exact name in examples folder
+			examplePath := filepath.Join("examples", baseName)
+			if data, readErr := os.ReadFile(examplePath); readErr == nil {
+				logger.Debug(logger.AreaGeneral, "Found file in examples directory: %s", examplePath)
+				serveContent(w, baseName, data)
+				return
+			}
+
+			// Try with .sid extension if not present
+			if !strings.HasSuffix(strings.ToLower(baseName), ".sid") {
+				examplePathSid := filepath.Join("examples", baseName+".sid")
+				if data, readErr := os.ReadFile(examplePathSid); readErr == nil {
+					logger.Debug(logger.AreaGeneral, "Found file in examples directory with .sid extension: %s", examplePathSid)
+					serveContent(w, baseName+".sid", data)
+					return
+				}
+			}
+		}
+
+		logger.Debug(logger.AreaGeneral, "File not found in examples directory either: %s", filename)
+		http.Error(w, "File not found", http.StatusNotFound)
 	}
+}
+
+// serveContent helps setting headers and writing response
+func serveContent(w http.ResponseWriter, filename string, content []byte) {
+	// Determine MIME type based on file extension
+	var contentType string
+	lowerName := strings.ToLower(filename)
+	switch {
+	case strings.HasSuffix(lowerName, ".sid"):
+		contentType = "application/octet-stream"
+	case strings.HasSuffix(lowerName, ".bas"):
+		contentType = "text/plain; charset=utf-8"
+	case strings.HasSuffix(lowerName, ".txt"):
+		contentType = "text/plain; charset=utf-8"
+	default:
+		contentType = "application/octet-stream"
+	}
+
+	// Headers setzen
+	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("inline; filename=\"%s\"", filename))
+
+	// Serve file
+	w.Write(content)
 }
