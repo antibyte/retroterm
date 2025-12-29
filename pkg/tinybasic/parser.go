@@ -968,6 +968,17 @@ func (b *TinyBASIC) evalBuiltinFunction(funcNameUpper string, args []BASICValue,
 		strLength := float64(utf8.RuneCountInString(args[0].StrValue))
 		return BASICValue{NumValue: strLength, IsNumeric: true}, nil
 
+	case "ASC":
+		if argCount != 1 || args[0].IsNumeric {
+			return BASICValue{}, errStrArg(1)
+		}
+		str := args[0].StrValue
+		if len(str) == 0 {
+			return BASICValue{}, fmt.Errorf("%w: ASC on empty string at pos %d", ErrInvalidExpression, namePos)
+		}
+		r, _ := utf8.DecodeRuneInString(str)
+		return BASICValue{NumValue: float64(r), IsNumeric: true}, nil
+
 	// Erweiterte Tastaturabfrage-Funktionen
 	case "KEYSTATE":
 		// KEYSTATE(key) - gibt 1 zurück wenn Taste gedrückt, 0 wenn losgelassen

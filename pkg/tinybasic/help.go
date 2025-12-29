@@ -141,6 +141,13 @@ Examples:
   PRINT A, B, C
   PRINT "The answer is"; A`,
 
+	"ASC": `Returns the ASCII code of the first character in a string.
+- Returns an integer
+- String must not be empty
+
+Example:
+  ASC("A")          ' Returns 65`,
+
 	"LET": `Assigns a value to a variable.
 - Variable name must start with a letter
 - String variables end with $ and contain text

@@ -2966,6 +2966,29 @@ func (vm *BytecodeVM) callBuiltinFunction(funcName string, argCount int) error {
 		vm.stack.Push(newNumericBASICValue(length))
 		return nil
 
+	case "ASC":
+		if argCount != 1 {
+			return fmt.Errorf("ASC requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if arg.IsNumeric {
+			return fmt.Errorf("ASC requires string argument")
+		}
+
+		str := arg.StrValue
+		if len(str) == 0 {
+			return fmt.Errorf("ASC on empty string")
+		}
+
+		// Get first rune's ASCII value (simplified)
+		// Assuming standard BASIC behavior where ASC returns the code of the first character
+		r := []rune(str)[0]
+		vm.stack.Push(newNumericBASICValue(float64(r)))
+		return nil
+
 	case "MID$":
 		if argCount != 2 && argCount != 3 {
 			return fmt.Errorf("MID$ requires 2 or 3 arguments, got %d", argCount)
