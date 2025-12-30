@@ -1866,14 +1866,31 @@ func (vm *BytecodeVM) executeInstructionLegacyInternal(inst Instruction) error {
 		vm.pc++
 
 	case OP_INPUT:
-		varName := strings.ToUpper(inst.Operand1.(string))
+		varNameStr := strings.ToUpper(inst.Operand1.(string))
+
+		// Parse possible multiple variables
+		vars := SplitInputList(varNameStr)
+		if len(vars) == 0 {
+			// Should not happen if compiled correctly
+			return fmt.Errorf("INPUT requires variable name")
+		}
+
+		validVars := make([]string, len(vars))
+		for i, v := range vars {
+			validVars[i] = strings.ToUpper(strings.TrimSpace(v))
+		}
 
 		// Pause VM execution and delegate to TinyBASIC input handling
 		vm.running = false
 
 		// Set up input state in TinyBASIC
 		vm.tinybasic.mu.Lock()
-		vm.tinybasic.inputVar = varName
+		vm.tinybasic.inputVar = validVars[0]
+		if len(validVars) > 1 {
+			vm.tinybasic.remainingInputVars = validVars[1:]
+		} else {
+			vm.tinybasic.remainingInputVars = nil
+		}
 		vm.tinybasic.waitingInput = true
 		vm.tinybasic.inputPC = vm.pc + 1 // Store where to resume after input
 		vm.tinybasic.mu.Unlock()
@@ -2790,6 +2807,47 @@ func (vm *BytecodeVM) callBuiltinFunction(funcName string, argCount int) error {
 			length = float64(len(arg.StrValue))
 		}
 		vm.stack.Push(newNumericBASICValue(length))
+		return nil
+
+	case "ASC":
+		if argCount != 1 {
+			return fmt.Errorf("ASC requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+
+		var str string
+		if arg.IsNumeric {
+			str = vm.toString(arg)
+		} else {
+			str = arg.StrValue
+		}
+
+		if len(str) == 0 {
+			return fmt.Errorf("ASC requires non-empty string")
+		}
+
+		// Use first char (runes for utf8 support)
+		r := []rune(str)[0]
+		vm.stack.Push(newNumericBASICValue(float64(r)))
+		return nil
+
+	case "CHR$":
+		if argCount != 1 {
+			return fmt.Errorf("CHR$ requires 1 argument, got %d", argCount)
+		}
+		arg, err := vm.stack.Pop()
+		if err != nil {
+			return err
+		}
+		if !arg.IsNumeric {
+			return fmt.Errorf("CHR$ requires numeric argument")
+		}
+
+		val := int(math.Round(arg.NumValue))
+		vm.stack.Push(newStringBASICValue(string(rune(val))))
 		return nil
 
 	case "MID$":

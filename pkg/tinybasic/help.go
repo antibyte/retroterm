@@ -391,6 +391,16 @@ Examples:
 Example:
   LOCATE 10, 5     ' Column 10, Row 5`,
 
+	"ASC": `Returns the ASCII (Unicode) code of the first character of the string.
+
+Example:
+  PRINT ASC("A")   ' Outputs 65`,
+
+	"CHR$": `Returns the character with the specified ASCII (or Unicode) code.
+
+Example:
+  PRINT CHR$(65)   ' Outputs A`,
+
 	"INVERSE": `Controls inverse text display mode.
 - ON: Text appears in reverse video
 - OFF: Normal text display

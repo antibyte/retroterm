@@ -47,82 +47,102 @@
     function loadFallbackSID() {
         return new Promise((resolve) => {
             // Create a minimal SID emulator
-            window.jsSID = {
-                SIDPlayer: class FallbackSIDPlayer {
-                    constructor() {
-                        this.isLoaded = false;
-                        this.sampleRate = 44100;
-                        this.channels = 3;
-                        this.voices = [
-                            { freq: 440, wave: 'sawtooth', volume: 0 },
-                            { freq: 554, wave: 'pulse', volume: 0 },
-                            { freq: 659, wave: 'triangle', volume: 0 }
-                        ];
-                        this.phase = [0, 0, 0];
-                    }                    loadSID(data) {
-                        this.isLoaded = true;
-                        // Simple pattern based on data
-                        const pattern = Array.from(data.slice(0, 32));
-                        this.voices[0].freq = 220 + (pattern[0] || 0);
-                        this.voices[1].freq = 330 + (pattern[1] || 0);
-                        this.voices[2].freq = 440 + (pattern[2] || 0);
-                        return true;
-                    }
+            window.jsSID = class FallbackSIDPlayer {
+                constructor() {
+                    this.isLoaded = false;
+                    this.sampleRate = 44100;
+                    this.channels = 3;
+                    this.voices = [
+                        { freq: 440, wave: 'sawtooth', volume: 0 },
+                        { freq: 554, wave: 'pulse', volume: 0 },
+                        { freq: 659, wave: 'triangle', volume: 0 }
+                    ];
+                    this.phase = [0, 0, 0];
+                    this.playtime = 0;
+                }
 
-                    generateSamples(buffer, length) {
-                        if (!this.isLoaded) return;
+                loadstart(url, subtune) {
+                    // Since we can't really load URL in fallback easily without fetching,
+                    // we assume loadSID is called separately or we handle it if needed.
+                    // But matching jsSID interface:
+                    // In real usage, loadSidFile fetches data and calls loadSID if using fallback?
+                    // Actually, loadSidFile calls currentSidPlayer.loadstart(url, 0)
 
-                        for (let i = 0; i < length; i++) {
-                            let sample = 0;
-                            
-                            // Generate audio for each voice
-                            for (let v = 0; v < this.channels; v++) {
-                                const voice = this.voices[v];
-                                if (voice.volume > 0) {
-                                    const phaseInc = (voice.freq * 2 * Math.PI) / this.sampleRate;
+                    // For fallback, we'll just set loaded to true to allow playback
+                    this.isLoaded = true;
+                }
+
+                loadSID(data) {
+                    this.isLoaded = true;
+                    // Simple pattern based on data
+                    const pattern = Array.from(data.slice(0, 32));
+                    this.voices[0].freq = 220 + (pattern[0] || 0);
+                    this.voices[1].freq = 330 + (pattern[1] || 0);
+                    this.voices[2].freq = 440 + (pattern[2] || 0);
+                    return true;
+                }
+
+                generateSamples(buffer, length) {
+                    if (!this.isLoaded) return;
+
+                    // Update playtime
+                    this.playtime += length / this.sampleRate;
+
+                    for (let i = 0; i < length; i++) {
+                        let sample = 0;
+
+                        // Generate audio for each voice
+                        for (let v = 0; v < this.channels; v++) {
+                            const voice = this.voices[v];
+                            if (voice.volume > 0) {
+                                const phaseInc = (voice.freq * 2 * Math.PI) / this.sampleRate;
                                     
-                                    let voiceSample = 0;
-                                    switch (voice.wave) {
-                                        case 'sawtooth':
-                                            voiceSample = (this.phase[v] / Math.PI) - 1;
-                                            break;
-                                        case 'pulse':
-                                            voiceSample = this.phase[v] < Math.PI ? 1 : -1;
-                                            break;
-                                        case 'triangle':
-                                            voiceSample = this.phase[v] < Math.PI ? 
-                                                (this.phase[v] / Math.PI) * 2 - 1 :
-                                                1 - ((this.phase[v] - Math.PI) / Math.PI) * 2;
-                                            break;
-                                        default:
-                                            voiceSample = Math.sin(this.phase[v]);
-                                    }
+                                let voiceSample = 0;
+                                switch (voice.wave) {
+                                    case 'sawtooth':
+                                        voiceSample = (this.phase[v] / Math.PI) - 1;
+                                        break;
+                                    case 'pulse':
+                                        voiceSample = this.phase[v] < Math.PI ? 1 : -1;
+                                        break;
+                                    case 'triangle':
+                                        voiceSample = this.phase[v] < Math.PI ?
+                                            (this.phase[v] / Math.PI) * 2 - 1 :
+                                            1 - ((this.phase[v] - Math.PI) / Math.PI) * 2;
+                                        break;
+                                    default:
+                                        voiceSample = Math.sin(this.phase[v]);
+                                }
                                     
-                                    sample += voiceSample * voice.volume * 0.2;
-                                    this.phase[v] += phaseInc;
-                                    if (this.phase[v] > 2 * Math.PI) {
-                                        this.phase[v] -= 2 * Math.PI;
-                                    }
+                                sample += voiceSample * voice.volume * 0.2;
+                                this.phase[v] += phaseInc;
+                                if (this.phase[v] > 2 * Math.PI) {
+                                    this.phase[v] -= 2 * Math.PI;
                                 }
                             }
-                            
-                            buffer[i] = sample;
                         }
-                    }
 
-                    play() {
-                        // Activate voices with random pattern
-                        this.voices[0].volume = 0.8;
-                        this.voices[1].volume = 0.6;
-                        this.voices[2].volume = 0.4;
-                    }
-
-                    stop() {
-                        this.voices.forEach(voice => voice.volume = 0);
+                        buffer[i] = sample;
                     }
                 }
+
+                play() {
+                    // Activate voices with random pattern
+                    this.voices[0].volume = 0.8;
+                    this.voices[1].volume = 0.6;
+                    this.voices[2].volume = 0.4;
+                }
+
+                stop() {
+                    this.voices.forEach(voice => voice.volume = 0);
+                }
+
+                getplaytime() {
+                    return Math.floor(this.playtime);
+                }
             };
-            jsSIDLoaded = true;            resolve();
+            jsSIDLoaded = true;
+            resolve();
         });
     }
     
@@ -299,8 +319,9 @@
             return {
                 filename: currentFilename,
                 isPlaying: isPlaying,
-                isPaused: isPaused,                currentTime: 0, // TODO: Implement time tracking
-                duration: 0     // TODO: Implement duration tracking
+                isPaused: isPaused,
+                currentTime: currentSidPlayer && currentSidPlayer.getplaytime ? currentSidPlayer.getplaytime() : 0,
+                duration: 0
             };
         };
 

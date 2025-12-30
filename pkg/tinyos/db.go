@@ -321,7 +321,7 @@ func CreateDefaultUsers(db *sql.DB) error {
 			return fmt.Errorf("failed to create dyson user: %w", err)
 		}
 
-		log.Printf("[INIT] Created default user: dyson (password: daniel)")
+		log.Printf("[INIT] Created default user: dyson")
 	}
 
 	return nil
