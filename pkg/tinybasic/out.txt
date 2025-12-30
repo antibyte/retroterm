@@ -1,0 +1,6 @@
+﻿=== RUN   TestVM_ForLoop_Debug
+    benchmark_debug_test.go:21: Compilation failed: bytecode compilation failed: compilation error at line 20: unexpected token: =
+--- FAIL: TestVM_ForLoop_Debug (0.00s)
+FAIL
+FAIL	github.com/antibyte/retroterm/pkg/tinybasic	0.022s
+FAIL

@@ -1163,6 +1163,23 @@ Object.assign(window.RetroConsole, {
                                 // console.log('[RetroConsole-CIRCLE] window.RetroGraphics:', window.RetroGraphics);
                             }
                             break;
+                        case 'REGISTER_2D':
+                            // Register static 2D objects for physics integration
+                            if (window.RetroGraphics && typeof window.RetroGraphics.registerAll2DObject === 'function') {
+                                const params = graphicsCommand.params;
+                                const data = {
+                                    x: params.x,
+                                    y: params.y,
+                                    width: params.width,
+                                    height: params.height,
+                                    radius: params.radius,
+                                    color: params.color,
+                                    fill: params.fill
+                                };
+                                window.RetroGraphics.registerAll2DObject(params.id, params.type, data, params.isStatic);
+                                console.log(`[RetroConsole] Registered ${params.isStatic ? 'static' : 'dynamic'} 2D object ${params.id} of type ${params.type}`);
+                            }
+                            break;
                         case 'FILL':
                              if (window.RetroGraphics && typeof window.RetroGraphics.handleFill === 'function') {
                                 window.RetroGraphics.handleFill(graphicsCommand);

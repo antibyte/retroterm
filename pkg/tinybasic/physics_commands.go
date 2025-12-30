@@ -71,8 +71,8 @@ func (b *TinyBASIC) handlePhysicsCommand(args string) error {
 		return b.handlePhysicsCollide(subArgs)
 	case "COLLISION":
 		return b.handlePhysicsCollision(subArgs)
-	case "LINK":
-		return b.handlePhysicsLink(subArgs)
+	case "PIVOT":
+		return b.handlePhysicsPivot(subArgs)
 	default:
 		return fmt.Errorf("unknown PHYSICS subcommand: %s", subcommand)
 	}
@@ -280,8 +280,8 @@ func (b *TinyBASIC) handlePhysicsLine(args []string) error {
 
 // handlePhysicsRect creates a rectangle collider
 func (b *TinyBASIC) handlePhysicsRect(args []string) error {
-	if len(args) != 4 {
-		return fmt.Errorf("PHYSICS RECT requires x, y, width, height")
+	if len(args) != 4 && len(args) != 5 && len(args) != 6 {
+		return fmt.Errorf("PHYSICS RECT requires x, y, width, height, [id], [type]")
 	}
 
 	xVal, err := b.evalExpression(args[0])
@@ -320,11 +320,41 @@ func (b *TinyBASIC) handlePhysicsRect(args []string) error {
 		return fmt.Errorf("height must be numeric: %v", err)
 	}
 
+	// Default ID and type
+	id := 1
+	bodyType := "static"
+	
+	// Parse optional ID parameter
+	if len(args) >= 5 {
+		idVal, err := b.evalExpression(args[4])
+		if err != nil {
+			return fmt.Errorf("invalid id: %v", err)
+		}
+		id, err = basicValueToInt(idVal)
+		if err != nil {
+			return fmt.Errorf("id must be numeric: %v", err)
+		}
+	}
+
+	// Parse optional type parameter
+	if len(args) >= 6 {
+		typeVal, err := b.evalExpression(args[5])
+		if err != nil {
+			return fmt.Errorf("invalid type: %v", err)
+		}
+		if typeVal.IsNumeric {
+			return fmt.Errorf("type must be string")
+		}
+		bodyType = typeVal.StrValue
+	}
+
 	return b.sendPhysicsCommand("RECT", map[string]interface{}{
 		"x":      float64(x),
 		"y":      float64(y),
 		"width":  float64(width),
 		"height": float64(height),
+		"id":     float64(id),
+		"type":   bodyType,
 	})
 }
 
@@ -669,6 +699,48 @@ func (b *TinyBASIC) handlePhysicsCollision(args []string) error {
 	})
 }
 
+// handlePhysicsPivot sets the rotation pivot point for a physics object
+func (b *TinyBASIC) handlePhysicsPivot(args []string) error {
+	if len(args) != 3 {
+		return fmt.Errorf("PHYSICS PIVOT requires id, offset_x, offset_y")
+	}
+
+	idVal, err := b.evalExpression(args[0])
+	if err != nil {
+		return fmt.Errorf("invalid id: %v", err)
+	}
+	id, err := basicValueToInt(idVal)
+	if err != nil {
+		return fmt.Errorf("id must be numeric: %v", err)
+	}
+
+	offsetXVal, err := b.evalExpression(args[1])
+	if err != nil {
+		return fmt.Errorf("invalid offset_x: %v", err)
+	}
+	offsetXInt, err := basicValueToInt(offsetXVal)
+	if err != nil {
+		return fmt.Errorf("offset_x must be numeric: %v", err)
+	}
+	offsetX := float64(offsetXInt)
+
+	offsetYVal, err := b.evalExpression(args[2])
+	if err != nil {
+		return fmt.Errorf("invalid offset_y: %v", err)
+	}
+	offsetYInt, err := basicValueToInt(offsetYVal)
+	if err != nil {
+		return fmt.Errorf("offset_y must be numeric: %v", err)
+	}
+	offsetY := float64(offsetYInt)
+
+	return b.sendPhysicsCommand("PIVOT", map[string]interface{}{
+		"id":      id,
+		"offsetX": offsetX,
+		"offsetY": offsetY,
+	})
+}
+
 // sendPhysicsCommand sends a physics command to the frontend
 func (b *TinyBASIC) sendPhysicsCommand(command string, params map[string]interface{}) error {
 	message := shared.Message{
@@ -722,73 +794,4 @@ func (b *TinyBASIC) handleSpritePhysicsCommand(args string) error {
 	})
 }
 
-// handleVectorPhysicsCommand processes VECTOR PHYSICS commands
-func (b *TinyBASIC) handleVectorPhysicsCommand(args string) error {
-	parts := strings.Fields(args)
-	if len(parts) < 3 {
-		return fmt.Errorf("VECTOR PHYSICS requires id, type, shape")
-	}
 
-	idVal, err := b.evalExpression(parts[0])
-	if err != nil {
-		return fmt.Errorf("invalid vector id: %v", err)
-	}
-	id, err := basicValueToInt(idVal)
-	if err != nil {
-		return fmt.Errorf("vector id must be numeric: %v", err)
-	}
-
-	bodyType := strings.ToLower(strings.Trim(parts[1], "\""))
-	shape := strings.ToLower(strings.Trim(parts[2], "\""))
-
-	// Optional density parameter
-	density := 1.0
-	if len(parts) > 3 {
-		densityVal, err := b.evalExpression(parts[3])
-		if err != nil {
-			return fmt.Errorf("invalid density: %v", err)
-		}
-		densityFloat, err := basicValueToInt(densityVal)
-		if err != nil {
-			return fmt.Errorf("density must be numeric: %v", err)
-		}
-		density = float64(densityFloat)
-	}
-
-	return b.sendPhysicsCommand("VECTOR", map[string]interface{}{
-		"id":       id,
-		"type":     bodyType,
-		"shape":    shape,
-		"density":  density,
-	})
-}
-
-// handlePhysicsLink links a physics body to a VECTOR/SPRITE object
-func (b *TinyBASIC) handlePhysicsLink(args []string) error {
-	if len(args) != 2 {
-		return fmt.Errorf("PHYSICS LINK requires physics_id and vector_id")
-	}
-
-	physicsIdVal, err := b.evalExpression(args[0])
-	if err != nil {
-		return fmt.Errorf("invalid physics ID: %v", err)
-	}
-	physicsId, err := basicValueToInt(physicsIdVal)
-	if err != nil {
-		return fmt.Errorf("physics ID must be numeric: %v", err)
-	}
-
-	vectorIdVal, err := b.evalExpression(args[1])
-	if err != nil {
-		return fmt.Errorf("invalid vector ID: %v", err)
-	}
-	vectorId, err := basicValueToInt(vectorIdVal)
-	if err != nil {
-		return fmt.Errorf("vector ID must be numeric: %v", err)
-	}
-
-	return b.sendPhysicsCommand("LINK", map[string]interface{}{
-		"physics_id": physicsId,
-		"vector_id":  vectorId,
-	})
-}

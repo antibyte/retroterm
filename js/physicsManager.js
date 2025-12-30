@@ -1,5 +1,5 @@
 // physicsManager.js - Physics system using Planck.js for TinyBASIC
-// Integrates with existing SPRITE and VECTOR systems
+// Integrates with existing SPRITE and 2D graphics systems
 
 class PhysicsManager {
     constructor() {
@@ -11,13 +11,16 @@ class PhysicsManager {
         this.groups = new Map(); // collision groups
         this.groupCollisions = new Map(); // group collision settings
         this.staticBodies = []; // Static geometry bodies
-        this.timeStep = 1/60;
-        this.velocityIterations = 8;
-        this.positionIterations = 3;
+        this.timeStep = 1/60; // Higher frequency for better stability
+        this.velocityIterations = 8; // Moderate solver iterations - too high causes instability
+        this.positionIterations = 3;  // Moderate position correction - too high causes oscillation
         
         // Visual rendering via existing RetroGraphics system
         this.visualBodies = new Map(); // id -> visual properties
-        this.linkedObjects = new Map(); // physics_id -> vector_id mapping
+        this.linkedObjects = new Map(); // physics_id -> object_id mapping
+        
+        // Simple timing for sprite updates
+        this.lastSpriteUpdateTime = 0;
         
         console.log('[PHYSICS-MANAGER] Physics Manager created');
     }
@@ -43,8 +46,25 @@ class PhysicsManager {
 
         try {
             this.world = planck.World(planck.Vec2(0, 0)); // Start with no gravity
+            
+            // Configure physics world for better stability
+            this.world.setAllowSleeping(true); // Enable sleeping to stop jittering objects
+            this.world.setWarmStarting(true);  // Improve solver stability
+            this.world.setContinuousPhysics(true); // Prevent tunneling
+            
+            // Set aggressive sleep parameters for energy loss
+            if (this.world.setSleepTimeThreshold) {
+                this.world.setSleepTimeThreshold(0.5); // Objects sleep after 0.5 seconds of low movement
+            }
+            if (this.world.setSleepLinearTolerance) {
+                this.world.setSleepLinearTolerance(0.1); // Allow small movement before sleeping
+            }
+            if (this.world.setSleepAngularTolerance) {
+                this.world.setSleepAngularTolerance(0.1); // Allow small rotation before sleeping
+            }
+            
             this.setupCollisionCallbacks();
-            console.log('[PHYSICS-MANAGER] Physics world initialized');
+            console.log('[PHYSICS-MANAGER] Physics world initialized with stability settings');
             return true;
         } catch (error) {
             console.error('[PHYSICS-MANAGER] Failed to initialize physics world:', error);
@@ -188,6 +208,45 @@ class PhysicsManager {
         }
     }
 
+    // Create rectangle collider (static or dynamic body with ID)
+    createDynamicRect(x, y, width, height, id = 1, type = "static") {
+        if (!this.world) return;
+
+        try {
+            const body = this.world.createBody({
+                type: type, // 'static' or 'dynamic'
+                position: planck.Vec2(this.pixelsToMeters(x + width/2), this.pixelsToMeters(y + height/2)),
+                linearDamping: (type === 'dynamic') ? 0.3 : 0,  // Moderate damping for stable physics
+                angularDamping: (type === 'dynamic') ? 0.8 : 0,  // High but realistic angular damping
+                allowSleep: true,  // Allow body to sleep when at rest
+                fixedRotation: false // Allow rotation but heavily dampened
+            });
+
+            const density = (type === 'dynamic') ? 2.0 : 0; // Realistic density for stable physics
+            body.createFixture(planck.Box(this.pixelsToMeters(width/2), this.pixelsToMeters(height/2)), {
+                friction: 0.6,   // Moderate friction for realistic behavior
+                restitution: 0.0, // No bouncing at all
+                density: density
+            });
+
+            // Default: keep center of mass in center for stability
+            // Custom pivot points can be set later with PHYSICS PIVOT command
+
+            if (type === 'dynamic') {
+                // Register as dynamic body with ID for tracking
+                this.bodies.set(id, body);
+                body.setUserData({ id: id });
+                console.log(`[PHYSICS-MANAGER] Dynamic Rect created: (${x},${y}) ${width}x${height} with ID ${id}`);
+            } else {
+                // Static body without ID tracking
+                this.staticBodies.push(body);
+                console.log(`[PHYSICS-MANAGER] Static Rect created: (${x},${y}) ${width}x${height}`);
+            }
+        } catch (error) {
+            console.error('[PHYSICS-MANAGER] Error creating dynamic rect:', error);
+        }
+    }
+
     // Create circle collider (dynamic body)
     createCircle(x, y, radius, id = 1) {
         if (!this.world) return;
@@ -195,13 +254,16 @@ class PhysicsManager {
         try {
             const body = this.world.createBody({
                 type: 'dynamic', // Make it dynamic so it falls
-                position: planck.Vec2(this.pixelsToMeters(x), this.pixelsToMeters(y))
+                position: planck.Vec2(this.pixelsToMeters(x), this.pixelsToMeters(y)),
+                linearDamping: 0.2,  // Light damping for natural movement
+                angularDamping: 0.6, // Moderate angular damping
+                allowSleep: true     // Allow this body to sleep when at rest
             });
 
             body.createFixture(planck.Circle(this.pixelsToMeters(radius)), {
-                friction: 0.4,
-                restitution: 0.8,
-                density: 1.0 // Give it mass so gravity affects it
+                friction: 0.4,   // Moderate friction for realistic rolling
+                restitution: 0.0, // No bouncing at all
+                density: 1.5 // Realistic density for stable physics
             });
 
             // Register with specified ID
@@ -268,18 +330,20 @@ class PhysicsManager {
         }
     }
 
-    // Set body velocity
+    // Set body velocity - scaled down for sluggish response
     setVelocity(id, vx, vy) {
         const body = this.bodies.get(id);
         if (body) {
+            // Normal velocity scaling for realistic physics
             body.setLinearVelocity(planck.Vec2(vx / this.scale, vy / this.scale));
         }
     }
 
-    // Apply force to body
+    // Apply force to body - heavily scaled down for sluggish response
     applyForce(id, fx, fy) {
         const body = this.bodies.get(id);
         if (body) {
+            // Normal force scaling for realistic physics
             const force = planck.Vec2(fx / this.scale, fy / this.scale);
             body.applyForceToCenter(force);
         }
@@ -366,11 +430,54 @@ class PhysicsManager {
         this.collisionCallbacks.set(key, lineNumber);
     }
 
-    // Link physics body to VECTOR/SPRITE object
-    linkPhysicsToVector(physicsId, vectorId) {
-        this.linkedObjects.set(physicsId, vectorId);
-        console.log(`[PHYSICS-MANAGER] Linked physics body ${physicsId} to VECTOR/SPRITE ${vectorId}`);
+
+    // Update sprite through the proper SPRITE UPDATE system (like BASIC does)
+    updateSpriteViaSystem(spriteId, definitionId, x, y, rotation, visible) {
+        // Throttle updates to avoid overwhelming the system
+        if (!this.lastSpriteUpdateTime || (performance.now() - this.lastSpriteUpdateTime) > 16) { // ~60fps
+            // Use the same system that BASIC uses for SPRITE UPDATE
+            if (window.spriteManager && typeof window.spriteManager.handleUpdateSprite === 'function') {
+                const updateData = {
+                    command: 'UPDATE_SPRITE',
+                    id: spriteId,
+                    definitionId: definitionId,
+                    x: x,
+                    y: y,
+                    rotation: rotation,
+                    visible: visible
+                };
+                
+                // Call the sprite manager's update function directly (same as backend does)
+                window.spriteManager.handleUpdateSprite(updateData);
+                this.lastSpriteUpdateTime = performance.now();
+            }
+        }
     }
+
+    // Set custom pivot point (center of mass) for a physics body
+    setPivotPoint(id, offsetX, offsetY) {
+        const body = this.bodies.get(id);
+        if (body) {
+            const mass = body.getMass();
+            const inertia = body.getInertia();
+            
+            // Convert pixel offset to physics coordinates
+            const centerOffset = planck.Vec2(
+                this.pixelsToMeters(offsetX), 
+                this.pixelsToMeters(offsetY)
+            );
+            
+            // Set new mass data with custom center of mass and adjusted inertia
+            body.setMassData({
+                mass: mass,
+                center: centerOffset,
+                I: inertia * 0.5 // Reduce rotational inertia to prevent oscillation with offset pivot
+            });
+            
+            console.log(`[PHYSICS-MANAGER] Set pivot point for body ${id}: (${offsetX}, ${offsetY})`);
+        }
+    }
+
 
     // Physics step
     step() {
@@ -387,7 +494,20 @@ class PhysicsManager {
     // Update visual positions of sprites/graphics based on physics
     updateVisualPositions() {
         for (const [physicsId, body] of this.bodies) {
-            if (body.getType() === 'dynamic') {
+            if (body.getType() === 'dynamic' && body.isAwake()) { // Only update awake bodies
+                // Check velocity and set to zero if very small (helps with jittering)
+                const velocity = body.getLinearVelocity();
+                const angularVelocity = body.getAngularVelocity();
+                const velocityThreshold = 0.1; // Natural threshold - let objects settle naturally
+                
+                // Only stop completely still objects
+                if (Math.abs(velocity.x) < 0.01 && Math.abs(velocity.y) < 0.01 && Math.abs(angularVelocity) < 0.01) {
+                    body.setLinearVelocity(planck.Vec2(0, 0));
+                    body.setAngularVelocity(0);
+                    body.setAwake(false); // Let physics engine handle energy loss naturally
+                }
+                
+                
                 const position = body.getPosition();
                 const angle = body.getAngle();
                 
@@ -396,69 +516,38 @@ class PhysicsManager {
                 const pixelY = this.metersToPixels(position.y);
                 const degrees = angle * 180 / Math.PI;
 
-                // Check if this physics body is linked to a VECTOR/SPRITE/2D object
+                // Check if this physics body is linked to a SPRITE/2D object
                 const objectId = this.linkedObjects.get(physicsId);
                 if (objectId) {
-                    // Try updating VECTOR objects (keep existing functionality)
-                    if (window.vectorManager && window.vectorManager.handleUpdateVector3D) {
-                        try {
-                            const vectorX = position.x; // Direct coordinates for vectors
-                            const vectorY = position.y;
-                            const rotX = angle;
-                            const rotY = angle * 0.7;
-                            const rotZ = angle * 0.5;
-                            
-                            window.vectorManager.handleUpdateVector3D({
-                                id: objectId,
-                                shape: 'sphere',
-                                position: { x: vectorX, y: vectorY, z: -8 },
-                                vecRotation: { x: rotX, y: rotY, z: rotZ },
-                                scale: 3.0,
-                                brightness: 15,
-                                visible: true
-                            });
-                            console.log(`[PHYSICS-MANAGER] Updated VECTOR ${objectId} from physics ${physicsId}: (${vectorX.toFixed(1)}, ${vectorY.toFixed(1)})`);
-                        } catch (error) {
-                            console.error('[PHYSICS-MANAGER] Error updating VECTOR position:', error);
-                        }
+                    let updated = false;
+                    
+                    // PRIORITY 1: Update 2D graphics objects (CIRCLE, RECT) - this must work for physics.bas!
+                    if (window.RetroGraphics && window.RetroGraphics.updatePhysicsObject) {
+                        window.RetroGraphics.updatePhysicsObject(objectId, Math.round(pixelX), Math.round(pixelY), degrees);
+                        updated = true;
                     }
                     
-                    // Try updating SPRITE objects
-                    if (window.spriteManager && window.spriteManager.updateSpritePosition) {
+                    // PRIORITY 2: Also try updating SPRITE objects if they exist
+                    if (!updated && window.spriteManager && window.spriteManager.spriteInstances) {
                         try {
-                            window.spriteManager.updateSpritePosition(objectId, Math.round(pixelX), Math.round(pixelY), degrees);
-                            console.log(`[PHYSICS-MANAGER] Updated SPRITE ${objectId} from physics ${physicsId}: (${Math.round(pixelX)}, ${Math.round(pixelY)})`);
+                            const sprite = window.spriteManager.spriteInstances.get(objectId);
+                            if (sprite) {
+                                const newX = Math.round(pixelX);
+                                const newY = Math.round(pixelY);
+                                const newRotation = Math.round(degrees);
+                                
+                                // Only update if position changed significantly
+                                const positionChanged = Math.abs(sprite.x - newX) > 2 || Math.abs(sprite.y - newY) > 2 || Math.abs(sprite.rotation - newRotation) > 5;
+                                
+                                if (positionChanged) {
+                                    // USE THE PROPER SPRITE UPDATE SYSTEM instead of direct manipulation
+                                    this.updateSpriteViaSystem(objectId, sprite.definitionId, newX, newY, newRotation, sprite.visible);
+                                }
+                                
+                                updated = true;
+                            }
                         } catch (error) {
                             console.error('[PHYSICS-MANAGER] Error updating SPRITE position:', error);
-                        }
-                    }
-                    
-                    // Try updating 2D graphics objects (CIRCLE, RECT)
-                    // For 2D graphics, we need to store and redraw, not update existing
-                    if (window.RetroGraphics && window.RetroGraphics.updatePhysicsObject) {
-                        try {
-                            window.RetroGraphics.updatePhysicsObject(objectId, Math.round(pixelX), Math.round(pixelY), degrees);
-                            console.log(`[PHYSICS-MANAGER] Updated 2D graphics object ${objectId} from physics ${physicsId}: (${Math.round(pixelX)}, ${Math.round(pixelY)})`);
-                        } catch (error) {
-                            console.error('[PHYSICS-MANAGER] Error updating 2D graphics object:', error);
-                        }
-                    }
-                } else if (physicsId === 1) {
-                    // Fallback: legacy behavior for physics ID 1
-                    if (window.vectorManager && window.vectorManager.handleUpdateVector3D) {
-                        try {
-                            window.vectorManager.handleUpdateVector3D({
-                                id: 1,
-                                shape: 'sphere',
-                                position: { x: pixelX, y: pixelY, z: -5 },
-                                vecRotation: { x: 0, y: 0, z: 0 },
-                                scale: 1.0,
-                                brightness: 4,
-                                visible: true
-                            });
-                            console.log(`[PHYSICS-MANAGER] Updated VECTOR sphere ID 1 (legacy): (${pixelX.toFixed(1)}, ${pixelY.toFixed(1)})`);
-                        } catch (error) {
-                            console.error('[PHYSICS-MANAGER] Error updating VECTOR position (legacy):', error);
                         }
                     }
                 }
@@ -466,16 +555,17 @@ class PhysicsManager {
         }
     }
 
-    // Enable/disable automatic physics updates
+    // Enable/disable automatic physics updates using traditional setInterval for better predictability
     setAutoUpdate(enabled) {
         this.autoUpdate = enabled;
         
         if (enabled && !this.updateInterval) {
+            // Use setInterval for consistent physics timing, separate from render timing
             this.updateInterval = setInterval(() => {
                 this.step();
-                this.render();
+                // Don't call render() here - let the main render system handle it
             }, this.timeStep * 1000);
-            console.log('[PHYSICS-MANAGER] Auto-update enabled');
+            console.log('[PHYSICS-MANAGER] Auto-update enabled with setInterval');
         } else if (!enabled && this.updateInterval) {
             clearInterval(this.updateInterval);
             this.updateInterval = null;
@@ -510,12 +600,27 @@ class PhysicsManager {
                     break;
 
                 case 'RECT':
-                    this.createRect(params.x, params.y, params.width, params.height);
+                    this.createDynamicRect(params.x, params.y, params.width, params.height, params.id || 1, params.type || "static");
+                    // Automatically register the 2D graphics object for physics updates if dynamic
+                    if ((params.type === "dynamic") && window.RetroGraphics && window.RetroGraphics.registerPhysicsObject) {
+                        const rectData = {
+                            x: params.x,
+                            y: params.y,
+                            width: params.width,
+                            height: params.height,
+                            color: 8, // Default color
+                            fill: 1   // Default fill
+                        };
+                        window.RetroGraphics.registerPhysicsObject(params.id || 1, 'RECT', rectData);
+                        
+                        // Also link the physics ID to the visual ID
+                        this.linkedObjects.set(params.id || 1, params.id || 1);
+                    }
                     break;
 
                 case 'CIRCLE':
                     this.createCircle(params.x, params.y, params.radius, params.id || 1);
-                    // Automatically register the 2D graphics object for physics updates
+                    // Register PHYSICS CIRCLE as dynamic 2D graphics object for 2D physics
                     if (window.RetroGraphics && window.RetroGraphics.registerPhysicsObject) {
                         const circleData = {
                             x: params.x,
@@ -524,10 +629,18 @@ class PhysicsManager {
                             color: 4, // Default color
                             fill: 1   // Default fill
                         };
+                        
+                        // Remove any static CIRCLE object at the same position that might exist
+                        const staticId = params.x + params.y * 1000; // Same ID generation as in gfx_commands.go
+                        if (window.RetroGraphics._all2DObjects && window.RetroGraphics._all2DObjects.has(staticId)) {
+                            console.log(`[PHYSICS-MANAGER] Removing static CIRCLE ${staticId} to replace with dynamic physics CIRCLE`);
+                            window.RetroGraphics._all2DObjects.delete(staticId);
+                        }
+                        
                         window.RetroGraphics.registerPhysicsObject(params.id || 1, 'CIRCLE', circleData);
                         
                         // Also link the physics ID to the visual ID (same ID for simplicity)
-                        this.linkPhysicsToVector(params.id || 1, params.id || 1);
+                        this.linkedObjects.set(params.id || 1, params.id || 1);
                     }
                     break;
 
@@ -536,25 +649,24 @@ class PhysicsManager {
                     break;
 
                 case 'SPRITE':
-                    // Get sprite position from sprite manager
-                    if (window.spriteManager && window.spriteManager.getSpritePosition) {
-                        const pos = window.spriteManager.getSpritePosition(params.id);
-                        if (pos) {
-                            this.addBody(params.id, params.type, params.shape, pos.x, pos.y, 32, 32, params.density);
+                    // Get sprite position from spriteManager
+                    if (window.spriteManager && window.spriteManager.spriteInstances) {
+                        const sprite = window.spriteManager.spriteInstances.get(params.id);
+                        if (sprite) {
+                            this.addBody(params.id, params.type, params.shape, sprite.x, sprite.y, 32, 32, params.density || 1.0);
+                            
+                            // Link physics ID to sprite ID for position updates
+                            this.linkedObjects.set(params.id, params.id);
+                            
+                            console.log(`[PHYSICS-MANAGER] Added physics to sprite ${params.id} at (${sprite.x}, ${sprite.y})`);
+                        } else {
+                            console.error(`[PHYSICS-MANAGER] Sprite ${params.id} not found in spriteInstances`);
                         }
+                    } else {
+                        console.error('[PHYSICS-MANAGER] spriteManager.spriteInstances not available');
                     }
                     break;
 
-                case 'VECTOR':
-                    // Get vector position from vector manager
-                    if (window.vectorManager && window.vectorManager.getVectorPosition) {
-                        const pos = window.vectorManager.getVectorPosition(params.id);
-                        if (pos) {
-                            const size = pos.scale * 32; // Estimate size from scale
-                            this.addBody(params.id, params.type, params.shape, pos.x, pos.y, size, size, params.density);
-                        }
-                    }
-                    break;
 
                 case 'STEP':
                     this.step();
@@ -596,8 +708,8 @@ class PhysicsManager {
                     this.setCollisionCallback(params.id1, params.id2, params.lineNumber);
                     break;
 
-                case 'LINK':
-                    this.linkPhysicsToVector(params.physics_id, params.vector_id);
+                case 'PIVOT':
+                    this.setPivotPoint(params.id, params.offsetX, params.offsetY);
                     break;
 
                 default:
@@ -632,55 +744,13 @@ class PhysicsManager {
         console.log('[PHYSICS-MANAGER] Physics Manager destroyed');
     }
 
-    // Render physics bodies using existing RetroGraphics/Vector system
+    // Render is handled by updateVisualPositions() through 2D graphics and SPRITE systems
     render() {
-        if (!this.world) return;
+        // Physics rendering is now handled entirely through 2D graphics primitives
+        // and SPRITE system updates in updateVisualPositions()
+        // VECTOR system integration has been removed as requested
         
-        // Only render if RetroGraphics is available
-        if (!this.useRetroGraphics()) return;
-
-        // Update positions of all dynamic bodies using VECTOR system
-        for (let [id, body] of this.bodies) {
-            const position = body.getPosition();
-            const angle = body.getAngle();
-            const pixelX = this.metersToPixels(position.x);
-            const pixelY = this.metersToPixels(position.y);
-            const degrees = angle * 180 / Math.PI;
-
-            // Get visual properties
-            const visual = this.visualBodies.get(id) || { shape: 'circle', color: 4, size: 25 };
-            
-            // Use existing VECTOR system to render physics objects
-            if (window.handleUpdateVector3D) {
-                try {
-                    if (visual.shape === 'circle') {
-                        // Update circle position via VECTOR system
-                        window.handleUpdateVector3D({
-                            id: 1000 + id,
-                            shape: 'sphere',
-                            position: { x: pixelX, y: pixelY, z: -5 },
-                            vecRotation: { x: 0, y: degrees * Math.PI / 180, z: 0 },
-                            scale: visual.size / 30,
-                            brightness: visual.color,
-                            visible: true
-                        });
-                    } else {
-                        // Update box position via VECTOR system  
-                        window.handleUpdateVector3D({
-                            id: 1000 + id,
-                            shape: 'cube',
-                            position: { x: pixelX, y: pixelY, z: -5 },
-                            vecRotation: { x: 0, y: degrees * Math.PI / 180, z: 0 },
-                            scale: visual.size / 30,
-                            brightness: visual.color,
-                            visible: true
-                        });
-                    }
-                } catch (error) {
-                    console.error('[PHYSICS-MANAGER] Error updating VECTOR position:', error);
-                }
-            }
-        }
+        // No longer needed - render loop integration handles this automatically
     }
 
     // Store visual properties for a body

@@ -1,0 +1,4 @@
+﻿=== RUN   TestVM_ForLoop_Debug_WithLET
+--- PASS: TestVM_ForLoop_Debug_WithLET (0.00s)
+PASS
+ok  	github.com/antibyte/retroterm/pkg/tinybasic	(cached)

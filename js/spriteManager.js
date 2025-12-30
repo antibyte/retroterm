@@ -147,6 +147,9 @@ export function handleUpdateSprite(data) {
         let newX = parseFloat(data.x) || 0;
         let newY = parseFloat(data.y) || 0;
 
+        // Get old sprite position for selective clearing
+        const oldSprite = spriteInstances.get(data.id);
+
         const newInstanceData = {
             id: data.id,
             definitionId: data.definitionId,
@@ -155,6 +158,11 @@ export function handleUpdateSprite(data) {
             rotation: Number(data.rotation || 0),
             visible: data.visible !== false
         };
+
+        // If sprite moved, clear old position before updating
+        if (oldSprite && (Math.abs(oldSprite.x - newX) > 1 || Math.abs(oldSprite.y - newY) > 1)) {
+            clearSpriteAtPosition(oldSprite.x, oldSprite.y);
+        }
 
         spriteInstances.set(newInstanceData.id, newInstanceData);
         
@@ -254,9 +262,6 @@ export function renderSprites(ctx, width, height) {
     if (!window.RetroGraphics._spritesDirty) {
         return; // Keine Änderungen, kein Rendering nötig
     }
-    
-    // Canvas für Sprites löschen (nur die sichtbaren Bereiche)
-    ctx.clearRect(0, 0, width, height);
     
     // Sammle alle zu rendernden Sprites in Batches nach definitionId
     const renderBatches = new Map();
@@ -381,10 +386,21 @@ export function clearAllSpriteData() {
 
 }
 
+// Clear a sprite at a specific position (for movement trail cleanup)
+function clearSpriteAtPosition(x, y) {
+    // Get the persistent graphics canvas context
+    if (window.persistentGraphicsContext) {
+        const ctx = window.persistentGraphicsContext;
+        const clearSize = (window.CRT_CONFIG?.SPRITE_SIZE || 32) + 4; // Add small padding
+        
+        // Clear the area where the old sprite was
+        ctx.clearRect(x - clearSize/2, y - clearSize/2, clearSize, clearSize);
+    }
+}
+
 export function clearActiveSpriteInstances() {
     window.RetroGraphics._spritesDirty = true;
     spriteInstances.clear();
-
 }
 
 // Globale Verfügbarkeit sicherstellen

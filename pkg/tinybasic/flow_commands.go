@@ -487,13 +487,23 @@ func (b *TinyBASIC) cmdFor(args string, nextTokenIndex int) error {
 		b.currentLine = nextJumpLine                // Jump past NEXT.
 		b.forLoops = b.forLoops[:len(b.forLoops)-1] // Pop loop info as es wurde übersprungen.
 	} else {
-		// Record loop execution for JIT hot spot detection (but don't execute yet)
+		// Record loop execution for JIT hot spot detection
 		if b.simpleJIT != nil && b.simpleJIT.enabled {
-			signature := fmt.Sprintf("FOR_%s_%d", varNameUpper, b.currentLine)
-			b.simpleJIT.RecordExecution(signature)
-			tinyBasicDebugLog("[SimpleJIT] Recorded execution for loop %s (count: %d)", signature, b.simpleJIT.executionCounts[signature])
+			// Try to execute with JIT immediately
+			executed, err := b.SimpleJITForLoopExecution(&loopInfo)
+			if err == nil && executed {
+				// JIT executed the loop successfully!
+				return nil
+			}
+
+			// If not executed (not compiled yet), just record execution
+			if !executed {
+				// signature := fmt.Sprintf("FOR_%s_%d", varNameUpper, b.currentLine)
+				// Ensure we don't double-record if SimpleJITForLoopExecution already did it
+				// But for now, SimpleJITForLoopExecution records it if not compiled
+			}
 		}
-		
+
 		// Always use interpreter for loop execution - JIT will be checked in NEXT
 		// Set currentLine to the first line of the loop body
 		b.currentLine = firstLoopLine
@@ -543,7 +553,7 @@ func (b *TinyBASIC) cmdNext(args string) error {
 			forLoopStackIndex = idx
 		}
 	}
-	
+
 	// Fallback to linear search if index map is inconsistent (should not happen normally)
 	if !found {
 		for i := len(b.forLoops) - 1; i >= 0; i-- {

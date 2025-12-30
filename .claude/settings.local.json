@@ -23,7 +23,17 @@
       "Bash(echo:*)",
       "Bash(sqlite3:*)",
       "Bash(find:*)",
-      "Bash(start http://localhost:8080)"
+      "Bash(start http://localhost:8080)",
+      "Bash(python:*)",
+      "Bash(for file in coin.json shoot.json laser.json powerup.json hit.json jump.json synth.json)",
+      "Bash(do echo \"=== $file ===\")",
+      "Bash(head:*)",
+      "Bash(done)",
+      "Bash(for file in *.json)",
+      "Bash(wc:*)",
+      "Bash(curl:*)",
+      "Bash(start .retroterm.exe)",
+      "Bash(.\\retroterm.exe)"
     ],
     "deny": []
   }

@@ -1523,9 +1523,6 @@ func (b *TinyBASIC) executeSingleStatementInternal(statement string, ctx context
 	case "VECTOR.SHOW":
 		err := b.cmdVectorShow(args)
 		return physicalNextLine, err
-	case "VECTOR.PHYSICS":
-		err := b.handleVectorPhysicsCommand(args)
-		return physicalNextLine, err
 	case "VECFLOOR":
 		err := b.cmdVecFloor(args)
 		return physicalNextLine, err

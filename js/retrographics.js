@@ -13,10 +13,10 @@ window.RetroGraphics = window.RetroGraphics || {};
 function updateSpriteHandlers() {
     if (window.spriteManager) {
         const { handleDefineSprite, handleDefineVirtualSprite, handleUpdateSprite, clearAllSpriteData } = window.spriteManager;
-        
+
         window.RetroGraphics.handleDefineSprite = handleDefineSprite;
         window.RetroGraphics.handleUpdateSprite = handleUpdateSprite;
-        window.RetroGraphics.handleDefineVirtualSprite = handleDefineVirtualSprite;        window.RetroGraphics.clearAllSpriteData = clearAllSpriteData;
+        window.RetroGraphics.handleDefineVirtualSprite = handleDefineVirtualSprite; window.RetroGraphics.clearAllSpriteData = clearAllSpriteData;
     } else {
     }
 }
@@ -495,7 +495,7 @@ function initGraphicsPipeline(textCanvasSource, textTextureSource) {
 
         return;
     }
-    
+
     graphicsSpriteTexture = new THREE.CanvasTexture(persistentGraphicsCanvas);
     graphicsSpriteTexture.minFilter = THREE.NearestFilter;
     graphicsSpriteTexture.magFilter = THREE.NearestFilter;
@@ -517,17 +517,17 @@ function initGraphicsPipeline(textCanvasSource, textTextureSource) {
     } else {
 
     }
-    
+
     // Initialize imageManager if available
     if (window.imageManager && typeof window.imageManager.initImageManager === 'function') {
         window.imageManager.initImageManager();
     }
-    
+
     // Initialize particleManager if available
     if (window.particleManager && typeof window.particleManager.initParticleManager === 'function') {
         window.particleManager.initParticleManager();
     }
-    
+
     // 5. Setup Post-Processing Scene
     postProcessingScene = new THREE.Scene();
     orthoCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -554,21 +554,21 @@ function initGraphicsPipeline(textCanvasSource, textTextureSource) {
     });
     const blitQuad = new THREE.Mesh(planeGeometry, blitMaterial);
     blitScene.add(blitQuad);
-    
+
     // Uniforms for the CRT shader
     crtUniforms = {
         textTextureSampler: { value: textTexture },
         mainTexture: { value: graphicsSpriteTexture },
-        
+
         time: { value: 0.0 },
         resolution: { value: new THREE.Vector2(mainOutputCanvas.width, mainOutputCanvas.height) },
         graphicsResolution: { value: new THREE.Vector2(CFG.GRAPHICS_WIDTH || 640, CFG.GRAPHICS_HEIGHT || 480) },
-        
+
         // CRT effect parameters from new config structure
         scanlinesEnabled: { value: CFG.CRT_EFFECTS.SCANLINES_ENABLED },
         scanlineIntensity: { value: CFG.CRT_EFFECTS.SCANLINES_INTENSITY },
         scanlineFrequency: { value: CFG.CRT_EFFECTS.SCANLINES_FREQUENCY },
-        
+
         barrelDistortionEnabled: { value: CFG.CRT_EFFECTS.BARREL_DISTORTION_ENABLED },
         barrelDistortionStrength: { value: CFG.CRT_EFFECTS.BARREL_DISTORTION_STRENGTH },
         u_barrelOverscan: { value: CFG.CRT_EFFECTS.BARREL_OVERSCAN },
@@ -576,20 +576,22 @@ function initGraphicsPipeline(textCanvasSource, textTextureSource) {
         noiseIntensity: { value: CFG.CRT_EFFECTS.NOISE_INTENSITY },
         noiseSpeed: { value: CFG.CRT_EFFECTS.NOISE_SPEED },
         u_time: { value: 0.0 },
-        
+
         vignetteEnabled: { value: CFG.CRT_EFFECTS.VIGNETTE_ENABLED },
         vignetteStrength: { value: CFG.CRT_EFFECTS.VIGNETTE_STRENGTH },
         vignetteRadius: { value: CFG.CRT_EFFECTS.VIGNETTE_RADIUS },
         glareEnabled: { value: CFG.CRT_EFFECTS.GLARE_ENABLED },
         glareIntensity: { value: CFG.CRT_EFFECTS.GLARE_INTENSITY },
         glareSize: { value: CFG.CRT_EFFECTS.GLARE_SIZE },
-        glarePosition: { value: new THREE.Vector2(
-            CFG.CRT_EFFECTS.GLARE_POSITION_X,
-            CFG.CRT_EFFECTS.GLARE_POSITION_Y
-        )},
+        glarePosition: {
+            value: new THREE.Vector2(
+                CFG.CRT_EFFECTS.GLARE_POSITION_X,
+                CFG.CRT_EFFECTS.GLARE_POSITION_Y
+            )
+        },
         glareFalloff: { value: CFG.CRT_EFFECTS.GLARE_FALLOFF },
         glareBrightnessThreshold: { value: CFG.CRT_EFFECTS.GLARE_BRIGHTNESS_THRESHOLD },
-        
+
         afterglowEnabled: { value: CFG.CRT_EFFECTS.AFTERGLOW_ENABLED },
         afterglowPersistence: { value: CFG.CRT_EFFECTS.AFTERGLOW_PERSISTENCE },
 
@@ -599,7 +601,7 @@ function initGraphicsPipeline(textCanvasSource, textTextureSource) {
         circularFalloffEnabled: { value: CFG.CRT_EFFECTS.BACKGROUND_GLOW.CIRCULAR_FALLOFF_ENABLED },
         circularFalloffRadius: { value: CFG.CRT_EFFECTS.BACKGROUND_GLOW.CIRCULAR_FALLOFF_RADIUS },
         circularFalloffIntensity: { value: CFG.CRT_EFFECTS.BACKGROUND_GLOW.CIRCULAR_FALLOFF_INTENSITY },
-        
+
         // Flimmer-Effekt
         flickerEnabled: { value: CFG.CRT_EFFECTS.FLICKER_ENABLED },
         flickerIntensity: { value: CFG.CRT_EFFECTS.FLICKER_INTENSITY },
@@ -654,7 +656,7 @@ function initGraphicsPipeline(textCanvasSource, textTextureSource) {
 
         return;
     }
-    
+
     // Start animation loop
     if (animationFrameId === null) {
         try {
@@ -708,16 +710,26 @@ function animateCRT() {
         const graphics2DNeedUpdate = window.RetroGraphics && window.RetroGraphics._graphics2DDirty;
         const imagesNeedUpdate = window.RetroGraphics && window.RetroGraphics._imagesDirty;
         const particlesNeedUpdate = window.RetroGraphics && window.RetroGraphics._particlesDirty;
-        
+
         if (spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate || imagesNeedUpdate || particlesNeedUpdate) {
-            // Clear the graphics canvas for this frame
-            persistentGraphicsContext.clearRect(0, 0, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
-              // Render sprites if spriteManager is available and sprites need update
+            // FUNDAMENTAL FIX: Do NOT clear the entire canvas if sprites exist
+            // Sprites should remain persistent until explicitly cleared
+
+            const hasActiveSprites = window.spriteManager && window.spriteManager.spriteInstances && window.spriteManager.spriteInstances.size > 0;
+
+            if (hasActiveSprites) {
+                // console.log(`[CANVAS-CLEAR] SKIPPING canvas clear - ${window.spriteManager.spriteInstances.size} active sprites would be destroyed`);
+                // Do NOT clear canvas when sprites are active - they should remain persistent
+            } else {
+                // console.log(`[CANVAS-CLEAR] Main render loop clearing canvas - sprites:${spritesNeedUpdate}, vectors:${vectorsNeedUpdate}, 2D:${graphics2DNeedUpdate}`);
+                persistentGraphicsContext.clearRect(0, 0, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
+            }
+            // Render sprites if spriteManager is available and sprites need update
             if (spritesNeedUpdate && window.spriteManager && typeof window.spriteManager.renderSprites === 'function') {
                 window.spriteManager.renderSprites(persistentGraphicsContext);
                 // Das Dirty-Flag wird bereits in renderSprites() zurückgesetzt
             }
-              // Render vectors if vectorManager is available and vectors need update
+            // Render vectors if vectorManager is available and vectors need update
             if (vectorsNeedUpdate && window.vectorManager && typeof window.vectorManager.renderVectors === 'function') {
                 window.vectorManager.renderVectors(persistentGraphicsContext, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
                 // Reset vector dirty flag after rendering (but keep it dirty if we have persistent objects like floors)
@@ -727,46 +739,46 @@ function animateCRT() {
                 }
                 // If we have floor objects, keep the dirty flag to ensure continuous rendering without flicker
             }
-            
+
             // Always render all visible images if imageManager is available
             // (since canvas was cleared, we need to redraw everything)
             if (window.imageManager && typeof window.imageManager.renderImages === 'function') {
                 window.imageManager.renderImages(persistentGraphicsContext, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
             }
-            
+
             // Reset image dirty flag after rendering
             if (imagesNeedUpdate) {
                 window.RetroGraphics._imagesDirty = false;
             }
-            
+
             // Always render particles if particleManager is available
             // (particles have their own continuous update/animation loop)
             if (window.particleManager && typeof window.particleManager.renderParticles === 'function') {
                 window.particleManager.renderParticles(persistentGraphicsContext, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
             }
-            
+
             // Don't reset particle dirty flag - particles need continuous animation
             // The particleManager will manage its own dirty state based on active particles
-            
+
             // Copy persistent2D graphics to main graphics canvas if needed
             if (persistent2DCanvas && persistent2DContext) {
                 persistentGraphicsContext.drawImage(persistent2DCanvas, 0, 0);
                 // Keep graphics2D dirty if persistent2D canvas has content
                 window.RetroGraphics._graphics2DDirty = true;
             }
-            
+
             // Reset 2D graphics dirty flag only if no persistent content
             if (graphics2DNeedUpdate && !(persistent2DCanvas && persistent2DContext)) {
                 window.RetroGraphics._graphics2DDirty = false;
             }
         }
-        
+
         // Always update the graphics texture if any graphics content changed
         if ((spritesNeedUpdate || vectorsNeedUpdate || graphics2DNeedUpdate || imagesNeedUpdate || particlesNeedUpdate) && graphicsSpriteTexture) {
             graphicsSpriteTexture.needsUpdate = true;
         }
     }
-   // Update time for shader effects
+    // Update time for shader effects
     if (crtUniforms && crtUniforms.u_time) {
         crtUniforms.u_time.value = performance.now() * 0.001;
     }
@@ -775,22 +787,22 @@ function animateCRT() {
         try {
             if (CFG.CRT_EFFECTS.AFTERGLOW_ENABLED && readBuffer && writeBuffer) {
                 // --- Afterglow Render-Pfad ---
-    
+
                 // Pass 1: Rendere die Szene mit allen Effekten in den `writeBuffer`.
                 // Der Shader liest dabei aus dem readBuffer (letzter Frame).
                 crtUniforms.prevFrameTexture.value = readBuffer.texture;
                 renderer.setRenderTarget(writeBuffer);
                 renderer.render(postProcessingScene, orthoCamera);
-    
+
                 // Pass 2: Rendere das Ergebnis aus dem `writeBuffer` auf den Bildschirm.
                 // Hierfür wird die separate Blit-Szene mit dem einfachen Shader verwendet.
                 blitMaterial.uniforms.displayTexture.value = writeBuffer.texture;
                 renderer.setRenderTarget(null);
                 renderer.render(blitScene, orthoCamera);
-    
+
                 // Tausche die Puffer für den nächsten Frame
                 [readBuffer, writeBuffer] = [writeBuffer, readBuffer];
-    
+
             } else { // --- Standard-Render-Pfad (ohne Afterglow) ---
                 renderer.setRenderTarget(null); // Direkt auf den Bildschirm rendern
                 renderer.render(postProcessingScene, orthoCamera);
@@ -809,15 +821,15 @@ function brightnessToColor(brightness) {
     if (typeof brightness !== 'number' || brightness < 0 || brightness > 15) {
         return '#5FFF5F'; // Default terminal green
     }
-    
+
     if (window.CONFIG && window.CONFIG.BRIGHTNESS_LEVELS && window.CONFIG.BRIGHTNESS_LEVELS[brightness]) {
         return window.CONFIG.BRIGHTNESS_LEVELS[brightness];
     }
-    
+
     // Fallback if config not available
     const brightnessLevels = [
         '#000000', '#001500', '#002500', '#003500', '#004500',
-        '#005500', '#006000', '#007000', '#008000', '#009000', 
+        '#005500', '#006000', '#007000', '#008000', '#009000',
         '#00A000', '#00B000', '#00C000', '#00D000', '#00E000', '#5FFF5F'
     ];
     return brightnessLevels[brightness] || '#5FFF5F';
@@ -829,12 +841,12 @@ function getColorFromData(data) {
     if (typeof data.brightness === 'number') {
         return brightnessToColor(data.brightness);
     }
-    
+
     // If color is specified as string, use it
     if (data.color && typeof data.color === 'string') {
         return data.color;
     }
-    
+
     // Default terminal green
     return '#5FFF5F';
 }
@@ -872,12 +884,12 @@ function handlePlot(data) {
         console.warn("[RETROGRAPHICS] Canvas oder Context nicht verfügbar für PLOT");
         return;
     }
-    
+
     const ctx = persistent2DContext;
     let color = getColorFromData(data);
     ctx.fillStyle = color;
     ctx.fillRect(Math.floor(data.x), Math.floor(data.y), 1, 1);
-    
+
     // Setze Dirty-Flag für 2D-Grafiken
     window.RetroGraphics._graphics2DDirty = true;
 }
@@ -887,7 +899,7 @@ function handleLine(data) {
         console.warn("[RETROGRAPHICS] Canvas oder Context nicht verfügbar für LINE");
         return;
     }
-    
+
     const ctx = persistent2DContext;
     let color = getColorFromData(data);
     ctx.strokeStyle = color;
@@ -895,7 +907,7 @@ function handleLine(data) {
     ctx.moveTo(Math.floor(data.x1), Math.floor(data.y1));
     ctx.lineTo(Math.floor(data.x2), Math.floor(data.y2));
     ctx.stroke();
-    
+
     // Setze Dirty-Flag für 2D-Grafiken
     window.RetroGraphics._graphics2DDirty = true;
 }
@@ -905,28 +917,31 @@ function handleCircle(data) {
         console.warn("[RETROGRAPHICS] Canvas oder Context nicht verfügbar für CIRCLE");
         return;
     }
-    
+
+    // console.log(`[RETROGRAPHICS] Drawing CIRCLE at (${data.x}, ${data.y}) radius ${data.radius}`, data);
+
     const ctx = persistent2DContext;
     let color = getColorFromData(data);
-    
+
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(Math.floor(data.x), Math.floor(data.y), Math.floor(data.radius), 0, 2 * Math.PI);
-    
+
     if (data.fill) {
         ctx.fill();
     } else {
         ctx.stroke();
     }
-    
+
     // Setze Dirty-Flag für 2D-Grafiken
     window.RetroGraphics._graphics2DDirty = true;
+    // console.log(`[RETROGRAPHICS] CIRCLE drawn, _graphics2DDirty = ${window.RetroGraphics._graphics2DDirty}`);
 }
 
 function handleRect(data) {
 
-    
+
     if (!persistent2DCanvas || !persistent2DContext) {
         console.error("[RECT-DEBUG] Canvas/Context nicht verfügbar:", {
             canvas: !!persistent2DCanvas,
@@ -934,15 +949,15 @@ function handleRect(data) {
         });
         return;
     }
-    
 
-    
+
+
     const ctx = persistent2DContext;
     let color = getColorFromData(data);
-  
-      ctx.strokeStyle = color;
+
+    ctx.strokeStyle = color;
     ctx.fillStyle = color;
-    
+
     if (data.fill) {
         ctx.fillRect(Math.floor(data.x), Math.floor(data.y), Math.floor(data.width), Math.floor(data.height));
 
@@ -950,7 +965,7 @@ function handleRect(data) {
         ctx.strokeRect(Math.floor(data.x), Math.floor(data.y), Math.floor(data.width), Math.floor(data.height));
 
     }
-    
+
     // Setze Dirty-Flag für 2D-Grafiken
     window.RetroGraphics._graphics2DDirty = true;
 }
@@ -960,13 +975,13 @@ function handleFill(data) {
         console.warn("[RETROGRAPHICS] Canvas oder Context nicht verfügbar für FILL");
         return;
     }
-    
+
     const ctx = persistent2DContext;
     let color = (data && data.color && typeof data.color === 'string') ? data.color : '#000000';
-    
+
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, persistent2DCanvas.width, persistent2DCanvas.height);
-    
+
     // Setze Dirty-Flag für 2D-Grafiken
     window.RetroGraphics._graphics2DDirty = true;
 }
@@ -976,31 +991,31 @@ function handleClearScreen() {
     if (persistent2DContext && persistent2DCanvas) {
         persistent2DContext.clearRect(0, 0, persistent2DCanvas.width, persistent2DCanvas.height);
     }
-    
+
     // Also clear the main graphics canvas
     if (persistentGraphicsContext && persistentGraphicsCanvas) {
         persistentGraphicsContext.clearRect(0, 0, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
     }
-    
+
     // Clear vectors
     if (window.vectorManager && typeof window.vectorManager.clearAllVectorObjects3D === 'function') {
         window.vectorManager.clearAllVectorObjects3D();
-        
+
         // Nach dem Löschen der Vektoren explizit neu rendern
         if (typeof window.vectorManager.renderVectors === 'function') {
             window.vectorManager.renderVectors(persistentGraphicsContext, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
         }
     }
-      // Clear sprites - nur Instanzen löschen, Definitionen behalten
+    // Clear sprites - nur Instanzen löschen, Definitionen behalten
     if (window.spriteManager && typeof window.spriteManager.clearActiveSpriteInstances === 'function') {
         window.spriteManager.clearActiveSpriteInstances();
     }
-    
+
     // Clear particles - alle aktiven Emitter stoppen
     if (window.particleManager && typeof window.particleManager.clearAllParticles === 'function') {
         window.particleManager.clearAllParticles();
     }
-    
+
     // Setze Dirty-Flag für sofortige Anzeige des Clear-Vorgangs
     window.RetroGraphics._graphics2DDirty = true;
 }
@@ -1011,7 +1026,7 @@ function handleUpdateVector(data) {
     if (window.CRT_CONFIG && window.CRT_CONFIG.DEBUG_VECTOR_MANAGER) {
 
     }
-    
+
     if (window.vectorManager && typeof window.vectorManager.handleUpdateVector3D === 'function') {
         const result = window.vectorManager.handleUpdateVector3D(data);
         if (window.CRT_CONFIG && window.CRT_CONFIG.DEBUG_VECTOR_MANAGER) {
@@ -1028,7 +1043,7 @@ function clearAllVectors() {
     if (window.CRT_CONFIG && window.CRT_CONFIG.DEBUG_VECTOR_MANAGER) {
 
     }
-    
+
     if (window.vectorManager && typeof window.vectorManager.clearAllVectorObjects3D === 'function') {
         window.vectorManager.clearAllVectorObjects3D();
         if (window.CRT_CONFIG && window.CRT_CONFIG.DEBUG_VECTOR_MANAGER) {
@@ -1056,11 +1071,11 @@ function debugGraphicsState() {
 // Erweiterte Debug-Funktion
 function debugCanvasLayers() {
     // Debug output removed for production
-    
+
     // Prüfe unser 2D-Canvas spezifisch
     if (persistent2DCanvas) {
         // Debug output removed for production
-        
+
         // Test: Male ein großes rotes Rechteck zur Sichtbarkeitsprüfung
         const ctx = persistent2DContext;
         ctx.fillStyle = '#FF0000';
@@ -1074,19 +1089,19 @@ window.debugCanvasLayers = debugCanvasLayers;
 // Debug für 2D-zu-Graphics-Canvas Transfer
 function debugCanvasTransfer() {
     // Debug output removed for production
-    
+
     if (persistent2DCanvas && persistentGraphicsCanvas) {
         // Teste den Transfer manuell
         persistentGraphicsContext.clearRect(0, 0, persistentGraphicsCanvas.width, persistentGraphicsCanvas.height);
         persistentGraphicsContext.drawImage(persistent2DCanvas, 0, 0);
-          // Teste auch die Texture-Update
+        // Teste auch die Texture-Update
         if (graphicsSpriteTexture) {
             graphicsSpriteTexture.needsUpdate = true;
             // Debug output removed for production
         }
-        
+
         // Debug output removed for production
-        
+
         // Trigger rendering
         if (window.RetroGraphics && window.RetroGraphics.animateCRT) {
             // Debug output removed for production
@@ -1140,28 +1155,28 @@ function triggerEvilEffect() {
     }    // Store original noise intensity
     const originalIntensity = window.CONFIG ? window.CONFIG.CRT_EFFECTS.NOISE_INTENSITY : 4.0;
     const maxIntensity = 50.0; // Maximum evil intensity - very dramatic!
-    
+
     // Debug output removed for production
-    
+
     // Immediately set to maximum intensity
     crtMaterial.uniforms.noiseIntensity.value = maxIntensity;
-    
+
     // After 1 second, start fading back to original over 5 seconds
     setTimeout(() => {
         const fadeDuration = 5000; // 5 seconds in milliseconds
         const startTime = Date.now();
-        
+
         function fadeStep() {
             const elapsed = Date.now() - startTime;
             const progress = Math.min(elapsed / fadeDuration, 1.0);
-            
+
             // Ease-out function for smooth transition
             const easedProgress = 1 - Math.pow(1 - progress, 3);
-            
+
             // Interpolate from max back to original
             const currentIntensity = maxIntensity + (originalIntensity - maxIntensity) * easedProgress;
             crtMaterial.uniforms.noiseIntensity.value = currentIntensity;
-            
+
             if (progress < 1.0) {
                 requestAnimationFrame(fadeStep);
             } else {                // Ensure we end exactly at the original value
@@ -1169,7 +1184,7 @@ function triggerEvilEffect() {
                 // Debug output removed for production
             }
         }
-        
+
         fadeStep();
     }, 1000); // Wait 1 second before starting fade
 }
@@ -1180,16 +1195,16 @@ window.RetroGraphics.triggerEvilEffect = triggerEvilEffect;
 // Temporäre Lösung: Direkt auf Terminal-Canvas zeichnen
 function debugDirectDraw() {
     // Debug output removed for production
-    
+
     const terminalCanvas = document.getElementById('terminalCanvas');
     if (terminalCanvas) {
         const ctx = terminalCanvas.getContext('2d');
-          // Zeichne direkt ein grünes Rechteck
+        // Zeichne direkt ein grünes Rechteck
         ctx.fillStyle = '#00FF00';
         ctx.fillRect(10, 10, 100, 100);
-        
+
         // Debug output removed for production
-          return true;
+        return true;
     } else {
         console.error("- Terminal-Canvas nicht gefunden!");
         return false;
@@ -1201,9 +1216,10 @@ window.debugDirectDraw = debugDirectDraw;
 // 2D Physics Integration System
 // Store 2D graphics objects that can be moved by physics
 window.RetroGraphics._physicsObjects = new Map(); // id -> { type, originalData, currentX, currentY }
+window.RetroGraphics._hasInitializedPhysicsCanvas = false; // Track first frame for initialization
 
 // Function to register a 2D graphics object for physics updates
-window.RetroGraphics.registerPhysicsObject = function(id, type, data) {
+window.RetroGraphics.registerPhysicsObject = function (id, type, data) {
     this._physicsObjects.set(id, {
         type: type,
         originalData: { ...data },
@@ -1216,71 +1232,146 @@ window.RetroGraphics.registerPhysicsObject = function(id, type, data) {
 };
 
 // Function to update a 2D graphics object position from physics
-window.RetroGraphics.updatePhysicsObject = function(id, newX, newY, rotation = 0) {
+window.RetroGraphics.updatePhysicsObject = function (id, newX, newY, rotation = 0) {
     const obj = this._physicsObjects.get(id);
     if (!obj) {
         console.warn(`[RETROGRAPHICS] Physics object ${id} not found for update`);
         return;
     }
-    
+
     // Update position
     obj.currentX = newX;
     obj.currentY = newY;
     obj.rotation = rotation;
-    
+
     // Trigger redraw of all physics objects
     this.redrawPhysicsObjects();
 };
 
-// Function to redraw all physics-controlled 2D objects
-window.RetroGraphics.redrawPhysicsObjects = function() {
+// Storage for all 2D objects (static and dynamic)
+window.RetroGraphics._all2DObjects = new Map(); // id -> { type, data, isStatic }
+
+// Function to register any 2D graphics object (static or dynamic)
+window.RetroGraphics.registerAll2DObject = function (id, type, data, isStatic = false) {
+    this._all2DObjects.set(id, {
+        type: type,
+        data: { ...data },
+        isStatic: isStatic
+    });
+    console.log(`[RETROGRAPHICS] Registered ${isStatic ? 'static' : 'dynamic'} 2D object ${id} of type ${type}`, data);
+    console.log(`[RETROGRAPHICS] Total 2D objects: ${this._all2DObjects.size}, Physics objects: ${this._physicsObjects.size}`);
+};
+
+// Store the original canvas state before physics objects
+window.RetroGraphics._originalCanvasState = null;
+
+// Function to save current canvas state (for preserving non-physics objects)
+window.RetroGraphics.saveCanvasState = function () {
+    if (!persistent2DCanvas || !persistent2DContext) return;
+
+    // Create a backup canvas to store the current state
+    if (!this._originalCanvasState) {
+        this._originalCanvasState = document.createElement('canvas');
+        this._originalCanvasState.width = persistent2DCanvas.width;
+        this._originalCanvasState.height = persistent2DCanvas.height;
+    }
+
+    const backupCtx = this._originalCanvasState.getContext('2d');
+    backupCtx.clearRect(0, 0, this._originalCanvasState.width, this._originalCanvasState.height);
+    backupCtx.drawImage(persistent2DCanvas, 0, 0);
+};
+
+// Function to redraw all physics-controlled 2D objects 
+window.RetroGraphics.redrawPhysicsObjects = function () {
     if (!persistent2DCanvas || !persistent2DContext) {
         console.warn("[RETROGRAPHICS] Canvas not available for physics redraw");
         return;
     }
-    
-    console.log(`[RETROGRAPHICS] Redrawing ${this._physicsObjects.size} physics objects`);
-    
-    // Clear only the dynamic objects area (or full canvas for simplicity)
+
     const ctx = persistent2DContext;
-    
-    // For now, we'll clear the entire canvas and redraw everything
-    // This is simple but not optimal - could be improved with layers
+
+    // Clear canvas and redraw all physics objects (needed for 2D graphics physics)
+    // Note: Sprites have their own persistence system
+
+    // Clear and redraw all 2D physics objects (this is needed for physics.bas to work!)
     ctx.clearRect(0, 0, persistent2DCanvas.width, persistent2DCanvas.height);
-    
-    // Redraw all physics objects at their current positions
+
+    // Always redraw static objects first
+    if (!this._hasInitializedPhysicsCanvas) {
+        console.log(`[RETROGRAPHICS] First frame - initializing physics canvas`);
+
+        // Redraw all static 2D objects (floors, walls, etc.)
+        for (const [id, obj] of this._all2DObjects) {
+            if (obj.isStatic) {
+                console.log(`[RETROGRAPHICS] Drawing static ${obj.type} ${id}`);
+                if (obj.type === 'CIRCLE') {
+                    this.drawCircleAtPosition(obj.data);
+                } else if (obj.type === 'RECT') {
+                    this.drawRectAtPosition(obj.data);
+                }
+            }
+        }
+
+        this._hasInitializedPhysicsCanvas = true;
+    }
+
+    // For physics objects, we use a different approach:
+    // Instead of clearing the entire canvas, we use compositing modes
+    // to draw physics objects without destroying sprites
+
+    // Save current composite operation
+    const previousCompositeOp = ctx.globalCompositeOperation;
+
+    // Draw physics objects with proper layering
     for (const [id, obj] of this._physicsObjects) {
+        // Clear only the old position of this specific object if it moved significantly
+        if (obj.lastX !== undefined && obj.lastY !== undefined) {
+            const moved = Math.abs(obj.currentX - obj.lastX) > 2 || Math.abs(obj.currentY - obj.lastY) > 2;
+            if (moved) {
+                // Clear the old position area (small area around old position)
+                const clearSize = Math.max(obj.originalData.radius || obj.originalData.width || 20,
+                    obj.originalData.height || 20) + 10; // Add padding
+                ctx.clearRect(obj.lastX - clearSize / 2, obj.lastY - clearSize / 2, clearSize, clearSize);
+            }
+        }
+
+        // Draw at new position with rotation
         const data = {
             ...obj.originalData,
             x: obj.currentX,
-            y: obj.currentY
+            y: obj.currentY,
+            rotation: obj.rotation || 0
         };
-        
-        console.log(`[RETROGRAPHICS] Redrawing ${obj.type} ${id} at (${obj.currentX}, ${obj.currentY})`);
-        
+
         if (obj.type === 'CIRCLE') {
             this.drawCircleAtPosition(data);
         } else if (obj.type === 'RECT') {
             this.drawRectAtPosition(data);
         }
-        // Add more types as needed
+
+        // Remember current position for next frame
+        obj.lastX = obj.currentX;
+        obj.lastY = obj.currentY;
     }
-    
-    // Set dirty flag to trigger rendering update
-    this._graphics2DDirty = true;
-    console.log(`[RETROGRAPHICS] Set _graphics2DDirty = true`);
+
+    // Restore composite operation
+    ctx.globalCompositeOperation = previousCompositeOp;
+
+    // DO NOT set 2D graphics dirty flag for physics updates
+    // This was causing continuous canvas clearing and sprite disappearance
+    // this._graphics2DDirty = true;
 };
 
 // Helper functions to draw specific shapes
-window.RetroGraphics.drawCircleAtPosition = function(data) {
+window.RetroGraphics.drawCircleAtPosition = function (data) {
     const ctx = persistent2DContext;
     let color = getColorFromData(data);
-    
+
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(Math.floor(data.x), Math.floor(data.y), Math.floor(data.radius), 0, 2 * Math.PI);
-    
+
     if (data.fill) {
         ctx.fill();
     } else {
@@ -1288,16 +1379,40 @@ window.RetroGraphics.drawCircleAtPosition = function(data) {
     }
 };
 
-window.RetroGraphics.drawRectAtPosition = function(data) {
+window.RetroGraphics.drawRectAtPosition = function (data) {
     const ctx = persistent2DContext;
     let color = getColorFromData(data);
-    
+
     ctx.strokeStyle = color;
     ctx.fillStyle = color;
-    
-    if (data.fill) {
-        ctx.fillRect(Math.floor(data.x), Math.floor(data.y), Math.floor(data.width), Math.floor(data.height));
+
+    // Handle rotation if present
+    const rotation = data.rotation || 0;
+    const centerX = data.x + data.width / 2;
+    const centerY = data.y + data.height / 2;
+
+    if (rotation !== 0) {
+        ctx.save();
+        ctx.translate(centerX, centerY);
+        ctx.rotate(rotation);
+
+        // Draw rectangle centered at origin
+        const halfWidth = data.width / 2;
+        const halfHeight = data.height / 2;
+
+        if (data.fill) {
+            ctx.fillRect(-halfWidth, -halfHeight, data.width, data.height);
+        } else {
+            ctx.strokeRect(-halfWidth, -halfHeight, data.width, data.height);
+        }
+
+        ctx.restore();
     } else {
-        ctx.strokeRect(Math.floor(data.x), Math.floor(data.y), Math.floor(data.width), Math.floor(data.height));
+        // No rotation - use original fast path
+        if (data.fill) {
+            ctx.fillRect(Math.floor(data.x), Math.floor(data.y), Math.floor(data.width), Math.floor(data.height));
+        } else {
+            ctx.strokeRect(Math.floor(data.x), Math.floor(data.y), Math.floor(data.width), Math.floor(data.height));
+        }
     }
 };

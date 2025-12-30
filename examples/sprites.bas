@@ -131,7 +131,7 @@
 1220 LOCATE 2, 1
 1230 PRINT "Spinning Ghosts! Collect Dots!"
 1240 
-1250 REM Main game loop
+1250 wait 2000
 1260 LOCATE 4, 1
 1261 
 1262 REM Update dot positions every frame to keep them active for collision detection

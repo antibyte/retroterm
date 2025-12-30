@@ -22,6 +22,7 @@ const config = {
     // Custom JS files to bundle (order matters!)
     bundleJsFiles: [
         'config.js',
+        'canvas-debug.js',  // DEBUG: Monitor all canvas clears
         'dynamicViewport.js',
         'fullscreen.js',
         'samInit.js',

@@ -7,165 +7,18 @@ import (
 	"math/rand"
 	"strconv"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/antibyte/retroterm/pkg/shared"
 )
 
-// CacheKey represents a numeric cache key for fast lookup
-type CacheKey uint64
-
-// InstructionCache provides caching for frequently used instruction patterns
-type InstructionCache struct {
-	cache map[CacheKey]*CachedInstruction
-	mutex sync.RWMutex
-	hits  int64
-	misses int64
-}
-
-// CachedInstruction represents a cached instruction with metadata
-type CachedInstruction struct {
-	handler   InstructionHandler
-	opcode    OpCode
-	hitCount  int64
-	lastUsed  int64 // Use Unix timestamp for atomic operations
-}
-
-// NewInstructionCache creates a new instruction cache
-func NewInstructionCache() *InstructionCache {
-	return &InstructionCache{
-		cache: make(map[CacheKey]*CachedInstruction),
-	}
-}
-
-// generateCacheKey creates a fast numeric cache key from opcode and operand
-func generateCacheKey(opcode OpCode, operand interface{}) CacheKey {
-	key := uint64(opcode) << 32
-	
-	switch v := operand.(type) {
-	case int:
-		key |= uint64(v) & 0xFFFFFFFF
-	case string:
-		// Simple hash for string operands
-		hash := uint64(0)
-		for _, char := range v {
-			hash = hash*31 + uint64(char)
-		}
-		key |= hash & 0xFFFFFFFF
-	case nil:
-		// No operand, just use opcode
-	default:
-		// For other types, use a simple hash
-		strVal := fmt.Sprintf("%v", v)
-		hash := uint64(0)
-		for _, char := range strVal {
-			hash = hash*31 + uint64(char)
-		}
-		key |= hash & 0xFFFFFFFF
-	}
-	
-	return CacheKey(key)
-}
-
-// Get retrieves a cached instruction handler (thread-safe)
-func (ic *InstructionCache) Get(key CacheKey) (InstructionHandler, bool) {
-	ic.mutex.RLock()
-	cached, exists := ic.cache[key]
-	ic.mutex.RUnlock()
-	
-	if exists {
-		atomic.AddInt64(&ic.hits, 1)
-		atomic.AddInt64(&cached.hitCount, 1)
-		atomic.StoreInt64(&cached.lastUsed, time.Now().Unix())
-		return cached.handler, true
-	}
-	
-	atomic.AddInt64(&ic.misses, 1)
-	return nil, false
-}
-
-// Put stores an instruction handler in the cache (thread-safe)
-func (ic *InstructionCache) Put(key CacheKey, handler InstructionHandler, opcode OpCode) {
-	ic.mutex.Lock()
-	defer ic.mutex.Unlock()
-	
-	ic.cache[key] = &CachedInstruction{
-		handler:   handler,
-		opcode:    opcode,
-		hitCount:  0,
-		lastUsed:  time.Now().Unix(),
-	}
-	
-	// Limit cache size to prevent memory bloat
-	if len(ic.cache) > 1000 {
-		ic.evictOldest()
-	}
-}
-
-// evictOldest removes the least recently used entries (thread-safe)
-func (ic *InstructionCache) evictOldest() {
-	var oldestKey CacheKey
-	var oldestTime int64 = math.MaxInt64
-	found := false
-	
-	for key, cached := range ic.cache {
-		lastUsed := atomic.LoadInt64(&cached.lastUsed)
-		if !found || lastUsed < oldestTime {
-			oldestKey = key
-			oldestTime = lastUsed
-			found = true
-		}
-	}
-	
-	if found {
-		delete(ic.cache, oldestKey)
-	}
-}
-
-// Clear clears the instruction cache (for cache invalidation)
-func (ic *InstructionCache) Clear() {
-	ic.mutex.Lock()
-	defer ic.mutex.Unlock()
-	
-	// Clear the cache map
-	ic.cache = make(map[CacheKey]*CachedInstruction)
-	
-	// Reset statistics
-	atomic.StoreInt64(&ic.hits, 0)
-	atomic.StoreInt64(&ic.misses, 0)
-}
-
-// GetStats returns cache statistics
-func (ic *InstructionCache) GetStats() map[string]interface{} {
-	ic.mutex.RLock()
-	defer ic.mutex.RUnlock()
-	
-	hits := atomic.LoadInt64(&ic.hits)
-	misses := atomic.LoadInt64(&ic.misses)
-	total := hits + misses
-	
-	hitRate := float64(0)
-	if total > 0 {
-		hitRate = float64(hits) / float64(total)
-	}
-	
-	return map[string]interface{}{
-		"hits":     hits,
-		"misses":   misses,
-		"entries":  len(ic.cache),
-		"hit_rate": hitRate,
-	}
-}
-
 // ErrorContext provides detailed error information with line numbers and context
 type ErrorContext struct {
-	LineNumber      int    // Original BASIC line number
-	Instruction     string // Instruction that caused the error
-	PC              int    // Program counter at error
-	StackSize       int    // Stack size at error
-	OriginalCode    string // Original BASIC code line
+	LineNumber      int                   // Original BASIC line number
+	Instruction     string                // Instruction that caused the error
+	PC              int                   // Program counter at error
+	StackSize       int                   // Stack size at error
+	OriginalCode    string                // Original BASIC code line
 	VariableContext map[string]BASICValue // Variable state at error
 }
 
@@ -192,7 +45,6 @@ type BytecodeVM struct {
 	variables map[string]BASICValue // Variable storage
 	running   bool                  // Execution state
 	ctx       context.Context       // Execution context
-	cache     *InstructionCache     // Instruction cache for optimization
 }
 
 // VMForLoop represents a FOR loop in the virtual machine with optimization hints
@@ -216,7 +68,6 @@ func NewBytecodeVM(tb *TinyBASIC) *BytecodeVM {
 		forLoops:  make([]VMForLoop, 0, 50), // 50 deep FOR loops
 		variables: make(map[string]BASICValue),
 		running:   false,
-		cache:     NewInstructionCache(),
 	}
 }
 
@@ -225,37 +76,28 @@ func (vm *BytecodeVM) LoadProgram(program *BytecodeProgram) {
 	vm.program = program
 	vm.pc = 0
 	vm.running = false
-	
-	// Clear instruction cache when loading new program
-	if vm.cache != nil {
-		vm.cache.Clear()
-	}
+
 }
 
 // Reset resets the VM state with memory optimization and cache invalidation
 func (vm *BytecodeVM) Reset() {
 	vm.pc = 0
-	
+
 	// Return current stack to pool and get a fresh one
 	if vm.stack != nil {
 		ReturnVMStack(vm.stack)
 	}
 	vm.stack = NewVMStack(1000)
-	
+
 	// Reuse slices instead of creating new ones
 	vm.callStack = vm.callStack[:0]
 	vm.forLoops = vm.forLoops[:0]
-	
+
 	// Clear variables map instead of creating new one
 	for k := range vm.variables {
 		delete(vm.variables, k)
 	}
-	
-	// Clear instruction cache on reset
-	if vm.cache != nil {
-		vm.cache.Clear()
-	}
-	
+
 	vm.running = false
 }
 
@@ -383,21 +225,21 @@ var instructionHandlers = [...]InstructionHandler{
 // createErrorContext creates detailed error context for debugging
 func (vm *BytecodeVM) createErrorContext(inst *Instruction, message string) *VMError {
 	context := ErrorContext{
-		LineNumber:   inst.LineNum,
-		Instruction:  inst.String(),
-		PC:           vm.pc,
-		StackSize:    vm.stack.Size(),
-		OriginalCode: "",
+		LineNumber:      inst.LineNum,
+		Instruction:     inst.String(),
+		PC:              vm.pc,
+		StackSize:       vm.stack.Size(),
+		OriginalCode:    "",
 		VariableContext: make(map[string]BASICValue),
 	}
-	
+
 	// Get original code if available
 	if vm.program != nil && vm.program.OriginalCode != nil {
 		if code, exists := vm.program.OriginalCode[inst.LineNum]; exists {
 			context.OriginalCode = code
 		}
 	}
-	
+
 	// Copy relevant variables for context (limit to prevent memory issues)
 	varCount := 0
 	for name, value := range vm.variables {
@@ -407,7 +249,7 @@ func (vm *BytecodeVM) createErrorContext(inst *Instruction, message string) *VME
 		context.VariableContext[name] = value
 		varCount++
 	}
-	
+
 	return &VMError{
 		Message: message,
 		Context: context,
@@ -423,19 +265,6 @@ func (vm *BytecodeVM) executeInstruction() error {
 
 	inst := vm.program.Instructions[vm.pc]
 
-	// Try to get cached handler first for frequently used instructions
-	cacheKey := generateCacheKey(inst.OpCode, inst.Operand1)
-	if handler, found := vm.cache.Get(cacheKey); found {
-		if err := handler(vm, &inst); err != nil {
-			// Wrap error with context if not already a VMError
-			if _, ok := err.(*VMError); !ok {
-				return vm.createErrorContext(&inst, err.Error())
-			}
-			return err
-		}
-		return nil
-	}
-
 	// Use jump table for O(1) dispatch
 	if int(inst.OpCode) >= len(instructionHandlers) || instructionHandlers[inst.OpCode] == nil {
 		tinyBasicDebugLog("[BYTECODE-VM] Unknown opcode: %d (array length: %d) - falling back to legacy", inst.OpCode, len(instructionHandlers))
@@ -447,10 +276,6 @@ func (vm *BytecodeVM) executeInstruction() error {
 	}
 
 	handler := instructionHandlers[inst.OpCode]
-	
-	// Cache the handler for future use
-	vm.cache.Put(cacheKey, handler, inst.OpCode)
-	
 	if err := handler(vm, &inst); err != nil {
 		// Wrap error with context if not already a VMError
 		if _, ok := err.(*VMError); !ok {
@@ -458,7 +283,7 @@ func (vm *BytecodeVM) executeInstruction() error {
 		}
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -470,7 +295,7 @@ func (vm *BytecodeVM) handleAdd(inst *Instruction) error {
 	if !vm.stack.HasItems(2) {
 		return fmt.Errorf("ADD: insufficient operands on stack")
 	}
-	
+
 	// Fast path for arithmetic operations
 	b := vm.stack.FastPop()
 	a := vm.stack.FastPop()
@@ -510,7 +335,7 @@ func (vm *BytecodeVM) handleAdd(inst *Instruction) error {
 			IsNumeric: false,
 		}
 	}
-	
+
 	vm.stack.FastPush(result)
 	vm.pc++
 	return nil
@@ -522,14 +347,14 @@ func (vm *BytecodeVM) handleSub(inst *Instruction) error {
 	if !vm.stack.HasItems(2) {
 		return fmt.Errorf("SUB: insufficient operands on stack")
 	}
-	
+
 	b := vm.stack.FastPop()
 	a := vm.stack.FastPop()
 
 	if !a.IsNumeric || !b.IsNumeric {
 		return fmt.Errorf("SUB: type mismatch, both operands must be numeric")
 	}
-	
+
 	// Special optimizations for common subtraction patterns
 	var result BASICValue
 	if b.NumValue == 0 {
@@ -551,7 +376,7 @@ func (vm *BytecodeVM) handleSub(inst *Instruction) error {
 			IsNumeric: true,
 		}
 	}
-	
+
 	vm.stack.FastPush(result)
 	vm.pc++
 	return nil
@@ -563,14 +388,14 @@ func (vm *BytecodeVM) handleMul(inst *Instruction) error {
 	if !vm.stack.HasItems(2) {
 		return fmt.Errorf("MUL: insufficient operands on stack")
 	}
-	
+
 	b := vm.stack.FastPop()
 	a := vm.stack.FastPop()
 
 	if !a.IsNumeric || !b.IsNumeric {
 		return fmt.Errorf("MUL: type mismatch, both operands must be numeric")
 	}
-	
+
 	// Special optimizations for common multiplication patterns
 	var result BASICValue
 	if a.NumValue == 0 || b.NumValue == 0 {
@@ -601,7 +426,7 @@ func (vm *BytecodeVM) handleMul(inst *Instruction) error {
 			IsNumeric: true,
 		}
 	}
-	
+
 	vm.stack.FastPush(result)
 	vm.pc++
 	return nil
@@ -613,18 +438,18 @@ func (vm *BytecodeVM) handleDiv(inst *Instruction) error {
 	if !vm.stack.HasItems(2) {
 		return fmt.Errorf("DIV: insufficient operands on stack")
 	}
-	
+
 	b := vm.stack.FastPop()
 	a := vm.stack.FastPop()
 
 	if !a.IsNumeric || !b.IsNumeric {
 		return fmt.Errorf("DIV: type mismatch, both operands must be numeric")
 	}
-	
+
 	if b.NumValue == 0 {
 		return fmt.Errorf("DIV: division by zero")
 	}
-	
+
 	// Special optimizations for common division patterns
 	var result BASICValue
 	if a.NumValue == 0 {
@@ -649,7 +474,7 @@ func (vm *BytecodeVM) handleDiv(inst *Instruction) error {
 			IsNumeric: true,
 		}
 	}
-	
+
 	vm.stack.FastPush(result)
 	vm.pc++
 	return nil
@@ -661,18 +486,18 @@ func (vm *BytecodeVM) handleMod(inst *Instruction) error {
 	if !vm.stack.HasItems(2) {
 		return fmt.Errorf("MOD: insufficient operands on stack")
 	}
-	
+
 	b := vm.stack.FastPop()
 	a := vm.stack.FastPop()
 
 	if !a.IsNumeric || !b.IsNumeric {
 		return fmt.Errorf("MOD: type mismatch, both operands must be numeric")
 	}
-	
+
 	if b.NumValue == 0 {
 		return fmt.Errorf("MOD: division by zero in modulo")
 	}
-	
+
 	result := BASICValue{
 		NumValue:  math.Mod(a.NumValue, b.NumValue),
 		IsNumeric: true,
@@ -688,14 +513,14 @@ func (vm *BytecodeVM) handlePow(inst *Instruction) error {
 	if !vm.stack.HasItems(2) {
 		return fmt.Errorf("POW: insufficient operands on stack")
 	}
-	
+
 	b := vm.stack.FastPop()
 	a := vm.stack.FastPop()
 
 	if !a.IsNumeric || !b.IsNumeric {
 		return fmt.Errorf("POW: type mismatch, both operands must be numeric")
 	}
-	
+
 	// Check for common edge cases for performance
 	if b.NumValue == 0 {
 		// Any number to the power of 0 is 1
@@ -733,7 +558,7 @@ func (vm *BytecodeVM) handlePow(inst *Instruction) error {
 		}
 		vm.stack.FastPush(result)
 	}
-	
+
 	vm.pc++
 	return nil
 }
@@ -744,13 +569,13 @@ func (vm *BytecodeVM) handleNeg(inst *Instruction) error {
 	if !vm.stack.HasItems(1) {
 		return fmt.Errorf("NEG: insufficient operands on stack")
 	}
-	
+
 	a := vm.stack.FastPop()
 
 	if !a.IsNumeric {
 		return fmt.Errorf("NEG: type mismatch, operand must be numeric")
 	}
-	
+
 	result := BASICValue{
 		NumValue:  -a.NumValue,
 		IsNumeric: true,
@@ -765,7 +590,7 @@ func (vm *BytecodeVM) handleEq(inst *Instruction) error {
 	if !vm.stack.HasItems(2) {
 		return fmt.Errorf("EQ: insufficient operands on stack")
 	}
-	
+
 	b := vm.stack.FastPop()
 	a := vm.stack.FastPop()
 
@@ -791,7 +616,7 @@ func (vm *BytecodeVM) handleNe(inst *Instruction) error {
 	if !vm.stack.HasItems(2) {
 		return fmt.Errorf("NE: insufficient operands on stack")
 	}
-	
+
 	b := vm.stack.FastPop()
 	a := vm.stack.FastPop()
 
@@ -1426,42 +1251,43 @@ func (vm *BytecodeVM) handleNoise(inst *Instruction) error {
 	tinyBasicDebugLog("[BYTECODE-VM] NOISE: Advanced PC to %d", vm.pc)
 	return nil
 }
-func (vm *BytecodeVM) handleBeep(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleCls(inst *Instruction) error     { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleMusic(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleSpeak(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handlePlot(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleLine(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleRect(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleCircle(inst *Instruction) error  { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleSprite(inst *Instruction) error  { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleVector(inst *Instruction) error  { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleSay(inst *Instruction) error     { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleLocate(inst *Instruction) error  { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleColor(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleKey(inst *Instruction) error     { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleData(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
-func (vm *BytecodeVM) handleRead(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleBeep(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleCls(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleMusic(inst *Instruction) error  { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleSpeak(inst *Instruction) error  { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handlePlot(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleLine(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleRect(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleCircle(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleSprite(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleVector(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleSay(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleLocate(inst *Instruction) error { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleColor(inst *Instruction) error  { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleKey(inst *Instruction) error    { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleData(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
+func (vm *BytecodeVM) handleRead(inst *Instruction) error   { return vm.handleLegacyInstruction(inst) }
+
 // Native DIM handler with optimized array allocation
 func (vm *BytecodeVM) handleDim(inst *Instruction) error {
 	// Get array specification from instruction operand
 	arraySpec := inst.Operand1.(string)
-	
+
 	// Parse array specification (e.g., "A(10)" or "B$(5,5)")
 	openParen := strings.IndexByte(arraySpec, '(')
 	if openParen == -1 {
 		return fmt.Errorf("DIM: invalid array specification")
 	}
-	
+
 	arrayName := strings.ToUpper(strings.TrimSpace(arraySpec[:openParen]))
-	dimensionsStr := strings.TrimSpace(arraySpec[openParen+1:len(arraySpec)-1])
-	
+	dimensionsStr := strings.TrimSpace(arraySpec[openParen+1 : len(arraySpec)-1])
+
 	// Parse dimensions
 	dimensions := strings.Split(dimensionsStr, ",")
 	if len(dimensions) > 2 {
 		return fmt.Errorf("DIM: maximum 2 dimensions supported")
 	}
-	
+
 	// Evaluate dimension expressions
 	var sizes []int
 	for _, dimStr := range dimensions {
@@ -1474,10 +1300,10 @@ func (vm *BytecodeVM) handleDim(inst *Instruction) error {
 		}
 		sizes = append(sizes, dimVal)
 	}
-	
+
 	// Determine array type
 	isStringArray := strings.HasSuffix(arrayName, "$")
-	
+
 	// Optimized array allocation
 	if len(sizes) == 1 {
 		// 1D array - linear allocation
@@ -1486,7 +1312,7 @@ func (vm *BytecodeVM) handleDim(inst *Instruction) error {
 		// 2D array - matrix allocation
 		vm.allocate2DArray(arrayName, sizes[0], sizes[1], isStringArray)
 	}
-	
+
 	vm.pc++
 	return nil
 }
@@ -1497,7 +1323,7 @@ func (vm *BytecodeVM) evaluateDimensionExpression(expr string) (int, error) {
 	if val, err := strconv.ParseFloat(expr, 64); err == nil {
 		return int(val), nil
 	}
-	
+
 	// Could evaluate variables or expressions here
 	return 0, fmt.Errorf("complex dimension expressions not yet supported")
 }
@@ -1505,17 +1331,17 @@ func (vm *BytecodeVM) evaluateDimensionExpression(expr string) (int, error) {
 // allocate1DArray optimizes 1D array allocation
 func (vm *BytecodeVM) allocate1DArray(name string, size int, isString bool) {
 	arrayKey := name + "("
-	
+
 	// Store array metadata
 	vm.variables[arrayKey+"SIZE"] = BASICValue{NumValue: float64(size), IsNumeric: true}
 	vm.variables[arrayKey+"DIMS"] = BASICValue{NumValue: 1, IsNumeric: true}
-	
+
 	// Pre-allocate array elements with default values
 	defaultValue := BASICValue{NumValue: 0, IsNumeric: true}
 	if isString {
 		defaultValue = BASICValue{StrValue: "", IsNumeric: false}
 	}
-	
+
 	// Bulk allocation for better performance
 	for i := 0; i <= size; i++ {
 		vm.variables[fmt.Sprintf("%s%d)", name, i)] = defaultValue
@@ -1525,18 +1351,18 @@ func (vm *BytecodeVM) allocate1DArray(name string, size int, isString bool) {
 // allocate2DArray optimizes 2D array allocation
 func (vm *BytecodeVM) allocate2DArray(name string, size1, size2 int, isString bool) {
 	arrayKey := name + "("
-	
+
 	// Store array metadata
 	vm.variables[arrayKey+"SIZE1"] = BASICValue{NumValue: float64(size1), IsNumeric: true}
 	vm.variables[arrayKey+"SIZE2"] = BASICValue{NumValue: float64(size2), IsNumeric: true}
 	vm.variables[arrayKey+"DIMS"] = BASICValue{NumValue: 2, IsNumeric: true}
-	
+
 	// Pre-allocate array elements with default values
 	defaultValue := BASICValue{NumValue: 0, IsNumeric: true}
 	if isString {
 		defaultValue = BASICValue{StrValue: "", IsNumeric: false}
 	}
-	
+
 	// Bulk allocation for better performance
 	for i := 0; i <= size1; i++ {
 		for j := 0; j <= size2; j++ {
@@ -1909,16 +1735,16 @@ func (vm *BytecodeVM) executeInstructionLegacyInternal(inst Instruction) error {
 		// Advanced optimization: Pre-calculate loop characteristics
 		var shouldExecute bool
 		var loopCount int
-		
+
 		if step.NumValue > 0 {
 			shouldExecute = current.NumValue <= end.NumValue
 			if shouldExecute {
-				loopCount = int((end.NumValue - current.NumValue) / step.NumValue + 1)
+				loopCount = int((end.NumValue-current.NumValue)/step.NumValue + 1)
 			}
 		} else {
 			shouldExecute = current.NumValue >= end.NumValue
 			if shouldExecute {
-				loopCount = int((current.NumValue - end.NumValue) / (-step.NumValue) + 1)
+				loopCount = int((current.NumValue-end.NumValue)/(-step.NumValue) + 1)
 			}
 		}
 
@@ -2835,26 +2661,26 @@ func (vm *BytecodeVM) toString(value BASICValue) string {
 		// Fast path for common integer values
 		if value.NumValue == float64(int64(value.NumValue)) {
 			intVal := int64(value.NumValue)
-			
+
 			// Ultra-fast path for single digits (most common case)
 			if intVal >= 0 && intVal <= 9 {
 				return string(rune('0' + intVal))
 			}
-			
+
 			// Fast path for common small integers
 			if intVal >= -999 && intVal <= 9999 {
 				return strconv.FormatInt(intVal, 10)
 			}
-			
+
 			// General integer case
 			return strconv.FormatInt(intVal, 10)
 		}
-		
+
 		// Float formatting with reduced precision for common cases
 		if value.NumValue >= -1e6 && value.NumValue <= 1e6 {
 			return strconv.FormatFloat(value.NumValue, 'f', -1, 64)
 		}
-		
+
 		// Scientific notation for very large/small numbers
 		return strconv.FormatFloat(value.NumValue, 'e', -1, 64)
 	}
@@ -3390,20 +3216,20 @@ func (vm *BytecodeVM) callBuiltinFunction(funcName string, argCount int) error {
 		if argCount != 1 {
 			return fmt.Errorf("PHYSICS requires 1 argument (argument string), got %d", argCount)
 		}
-		
+
 		// Pop the arguments string from stack
 		arg, err := vm.stack.Pop()
 		if err != nil {
 			return err
 		}
-		
+
 		var argsStr string
 		if arg.IsNumeric {
 			argsStr = fmt.Sprintf("%.0f", arg.NumValue)
 		} else {
 			argsStr = arg.StrValue
 		}
-		
+
 		// Execute physics command via TinyBASIC interpreter
 		if vm.tinybasic != nil {
 			err := vm.tinybasic.handlePhysicsCommand(argsStr)
@@ -3451,9 +3277,6 @@ func (vm *BytecodeVM) GetPerformanceStats() map[string]interface{} {
 	}
 
 	// Add cache statistics
-	if vm.cache != nil {
-		stats["instruction_cache"] = vm.cache.GetStats()
-	}
 
 	// Add string interning statistics
 	stats["string_interning"] = globalStringInterning.GetStats()

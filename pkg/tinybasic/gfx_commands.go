@@ -277,6 +277,27 @@ func (b *TinyBASIC) cmdRect(args string) error {
 	if !b.sendMessageObject(rectMsg) {
 		return NewBASICError(ErrCategorySystem, "MESSAGE_SEND_FAILED", b.currentLine == 0, b.currentLine).WithCommand("RECT")
 	}
+
+	// Also send registration message for 2D physics integration
+	registrationParams := map[string]interface{}{
+		"id":       values[0] + values[1]*1000, // Simple ID generation: x + y*1000
+		"type":     "RECT",
+		"x":        values[0],
+		"y":        values[1],
+		"width":    values[2],
+		"height":   values[3],
+		"color":    brightness, // Use brightness as numeric color
+		"fill":     fill,
+		"isStatic": true,
+	}
+	
+	registrationMsg := shared.Message{
+		Type:    shared.MessageTypeGraphics,
+		Command: "REGISTER_2D",
+		Params:  registrationParams,
+	}
+	b.sendMessageObject(registrationMsg) // Don't fail if this doesn't work
+	
 	return nil
 }
 
@@ -385,6 +406,32 @@ func (b *TinyBASIC) cmdCircle(args string) error {
 	if !b.sendMessageObject(circleMsg) {
 		return NewBASICError(ErrCategorySystem, "MESSAGE_SEND_FAILED", b.currentLine == 0, b.currentLine).WithCommand("CIRCLE")
 	}
+
+	// Also send registration message for 2D physics integration
+	// This ensures CIRCLE objects remain visible even when physics system redraws canvas
+	registrationParams := map[string]interface{}{
+		"id": values[0] + values[1]*1000, // Simple ID generation: x + y*1000
+		"type": "CIRCLE", 
+		"x": values[0], 
+		"y": values[1],
+		"radius": values[2],
+		"fill": fill, 
+		"isStatic": true, // Mark as static unless overridden by PHYSICS CIRCLE
+	}
+	
+	// Add the appropriate color parameter
+	if brightness >= 0 {
+		registrationParams["brightness"] = brightness
+	} else {
+		registrationParams["color"] = color
+	}
+	registrationMsg := shared.Message{
+		Type: shared.MessageTypeGraphics, 
+		Command: "REGISTER_2D", 
+		Params: registrationParams,
+	}
+	b.sendMessageObject(registrationMsg)
+	
 	return nil
 }
 
