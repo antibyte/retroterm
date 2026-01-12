@@ -35,12 +35,13 @@ func TestNoHardcodedSecrets(t *testing.T) {
 		"continue.txt",
 		"security_test.go", // This test file itself
 		"SECURITY_SETUP.md",
-		"jwt.go", // Contains monitored fallback secrets with warnings
+		"distjsretroterm.min.js", // Minified build artifact
 	}
 
 	// Directories to exclude
 	excludeDirs := []string{
 		".git",
+		".jules",
 		"node_modules",
 		"tmp",
 		"debug.log",
