@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/antibyte/retroterm/pkg/configuration"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
@@ -298,30 +299,44 @@ func (db *Database) GetUserID(username string) (int, error) {
 
 // CreateDefaultUsers creates default system users if they don't exist
 func CreateDefaultUsers(db *sql.DB) error {
-	// Check if dyson user already exists
-	var count int
-	err := db.QueryRow("SELECT COUNT(*) FROM users WHERE username = ?", "dyson").Scan(&count)
-	if err != nil {
-		return fmt.Errorf("failed to check for dyson user: %w", err)
-	}
-	// Create dyson user if it doesn't exist
-	if count == 0 {
-		// Password is "daniel" (his son's name) - needs to be hashed
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("daniel"), bcrypt.DefaultCost)
+	// Get default user from configuration
+	username := configuration.GetString("DefaultUser", "username", "")
+	password := configuration.GetString("DefaultUser", "password", "")
+
+	if username != "" && password != "" {
+		// Check if user already exists
+		var count int
+		err := db.QueryRow("SELECT COUNT(*) FROM users WHERE username = ?", username).Scan(&count)
 		if err != nil {
-			return fmt.Errorf("failed to hash dyson password: %w", err)
+			return fmt.Errorf("failed to check for default user: %w", err)
 		}
 
-		_, err = db.Exec(`
-			INSERT INTO users (username, password, last_login, login_attempts, is_admin, is_active, is_logged_in, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		`, "dyson", string(hashedPassword), 0, 0, 1, 1, 0, time.Now().Unix())
+		if count == 0 {
+			// Password needs to be hashed
+			hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+			if err != nil {
+				return fmt.Errorf("failed to hash default password: %w", err)
+			}
 
-		if err != nil {
-			return fmt.Errorf("failed to create dyson user: %w", err)
+			_, err = db.Exec(`
+				INSERT INTO users (username, password, last_login, login_attempts, is_admin, is_active, is_logged_in, created_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`, username, string(hashedPassword), 0, 0, 1, 1, 0, time.Now().Unix())
+
+			if err != nil {
+				return fmt.Errorf("failed to create default user: %w", err)
+			}
+
+			log.Printf("[INIT] Created configured default user: %s", username)
 		}
-
-		log.Printf("[INIT] Created default user: dyson")
+	} else {
+		// Check if ANY users exist to warn if system might be inaccessible
+		var userCount int
+		err := db.QueryRow("SELECT COUNT(*) FROM users").Scan(&userCount)
+		if err == nil && userCount == 0 {
+			log.Printf("[INIT] WARNING: No users found in database and no default user configured in settings.cfg.")
+			log.Printf("[INIT] WARNING: Please configure [DefaultUser] section in settings.cfg to create an initial admin user.")
+		}
 	}
 
 	return nil
