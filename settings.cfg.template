@@ -26,6 +26,13 @@ secret_key = CHANGE_ME_IN_PRODUCTION_USE_RANDOM_SECRET
 ; Token expiration in hours
 token_expiration_hours = 24
 
+[DefaultUser]
+; Initial admin user configuration
+; If set, this user will be created on startup if it doesn't exist
+; Leave empty to disable default user creation
+; username = admin
+; password = change_me_immediately
+
 [DeepSeek]
 ; DeepSeek AI API configuration
 ; IMPORTANT: Set your actual API key here or use environment variable

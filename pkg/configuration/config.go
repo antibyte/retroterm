@@ -160,6 +160,12 @@ func (c *Config) createDefaultConfig() {
 		"max_inactive_time":         "30m",
 	}
 
+	// [DefaultUser] Sektion
+	c.settings["DefaultUser"] = map[string]string{
+		"username": "",
+		"password": "",
+	}
+
 	// [Security] Sektion
 	c.settings["Security"] = map[string]string{
 		"max_message_length":              "1000",
@@ -284,7 +290,7 @@ func (c *Config) saveToFile() error {
 	file.WriteString(";\n\n")
 
 	// Schreibe alle Sektionen in einer definierten Reihenfolge
-	sections := []string{"System", "Security", "Authentication", "ChatRateLimit", "BanSystem", "FileSystem", "Terminal", "Editor", "Network", "Debug"}
+	sections := []string{"System", "Security", "DefaultUser", "Authentication", "ChatRateLimit", "BanSystem", "FileSystem", "Terminal", "Editor", "Network", "Debug"}
 
 	for _, section := range sections {
 		if settings, exists := c.settings[section]; exists {
