@@ -8,6 +8,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/antibyte/retroterm/pkg/configuration"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	_ "modernc.org/sqlite"
@@ -306,8 +307,24 @@ func CreateDefaultUsers(db *sql.DB) error {
 	}
 	// Create dyson user if it doesn't exist
 	if count == 0 {
-		// Password is "daniel" (his son's name) - needs to be hashed
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("daniel"), bcrypt.DefaultCost)
+		// Get password from config
+		password := configuration.GetString("DefaultUser", "password", "")
+
+		// If no password set, generate a random secure password
+		if password == "" {
+			randomBytes := make([]byte, 12)
+			if _, err := rand.Read(randomBytes); err != nil {
+				return fmt.Errorf("failed to generate random password: %w", err)
+			}
+			password = hex.EncodeToString(randomBytes)
+			log.Printf("⚠️  [SECURITY] Generated RANDOM password for user 'dyson': %s", password)
+			log.Printf("⚠️  [SECURITY] Please change this password immediately or set it in settings.cfg")
+		} else {
+			log.Printf("[INIT] Using configured password for user 'dyson'")
+		}
+
+		// Password needs to be hashed
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			return fmt.Errorf("failed to hash dyson password: %w", err)
 		}

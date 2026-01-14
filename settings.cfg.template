@@ -26,6 +26,11 @@ secret_key = CHANGE_ME_IN_PRODUCTION_USE_RANDOM_SECRET
 ; Token expiration in hours
 token_expiration_hours = 24
 
+[DefaultUser]
+; Configuration for the default admin user (dyson)
+; If password is not set (empty) or commented out, a random password will be generated and printed to the logs on first startup.
+; password = CHANGE_ME_TO_SECURE_PASSWORD
+
 [DeepSeek]
 ; DeepSeek AI API configuration
 ; IMPORTANT: Set your actual API key here or use environment variable
