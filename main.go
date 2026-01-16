@@ -14,6 +14,7 @@ import (
 	"github.com/antibyte/retroterm/pkg/auth"
 	"github.com/antibyte/retroterm/pkg/configuration"
 	"github.com/antibyte/retroterm/pkg/logger"
+	"github.com/antibyte/retroterm/pkg/middleware"
 	"github.com/antibyte/retroterm/pkg/shared"
 	"github.com/antibyte/retroterm/pkg/terminal"
 	"github.com/antibyte/retroterm/pkg/tinyos"
@@ -178,7 +179,10 @@ func main() { // Initialize configuration (before all other initializations)
 func startHTTPServer(port string) {
 	logger.Info(logger.AreaGeneral, "Starting HTTP server on port %s", port)
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	// Use security middleware with DefaultServeMux
+	handler := middleware.WithSecurityHeaders(http.DefaultServeMux)
+
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
 		logger.Error(logger.AreaGeneral, "HTTP server startup failed: %v", err)
 		log.Fatalf("Error starting HTTP server: %v", err)
 	}
@@ -204,8 +208,10 @@ func startTLSServers(tlsManager *tlsmanager.TLSManager) {
 			}
 
 			if httpHandler != nil {
+				// Also wrap redirect/challenge server with security headers just in case
+				secureHandler := middleware.WithSecurityHeaders(httpHandler)
 				logger.Info(logger.AreaSecurity, "Starting HTTP server for Let's Encrypt challenges/redirects on port %s", httpPort)
-				if err := http.ListenAndServe(":"+httpPort, httpHandler); err != nil {
+				if err := http.ListenAndServe(":"+httpPort, secureHandler); err != nil {
 					logger.Error(logger.AreaSecurity, "HTTP server error: %v", err)
 					errorChan <- fmt.Errorf("HTTP server error: %v", err)
 				}
@@ -216,7 +222,7 @@ func startTLSServers(tlsManager *tlsmanager.TLSManager) {
 		httpsServer := &http.Server{
 			Addr:      ":" + httpsPort,
 			TLSConfig: tlsManager.GetTLSConfig(),
-			Handler:   nil, // Use default mux with all registered handlers
+			Handler:   middleware.WithSecurityHeaders(http.DefaultServeMux), // Wrap default mux with security headers
 		}
 
 		logger.Info(logger.AreaSecurity, "Starting HTTPS server on port %s", httpsPort)
