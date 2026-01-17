@@ -14,6 +14,7 @@ import (
 	"github.com/antibyte/retroterm/pkg/auth"
 	"github.com/antibyte/retroterm/pkg/configuration"
 	"github.com/antibyte/retroterm/pkg/logger"
+	"github.com/antibyte/retroterm/pkg/middleware"
 	"github.com/antibyte/retroterm/pkg/shared"
 	"github.com/antibyte/retroterm/pkg/terminal"
 	"github.com/antibyte/retroterm/pkg/tinyos"
@@ -178,7 +179,10 @@ func main() { // Initialize configuration (before all other initializations)
 func startHTTPServer(port string) {
 	logger.Info(logger.AreaGeneral, "Starting HTTP server on port %s", port)
 
-	if err := http.ListenAndServe(":"+port, nil); err != nil {
+	// Apply security headers middleware
+	handler := middleware.SecurityHeaders(http.DefaultServeMux)
+
+	if err := http.ListenAndServe(":"+port, handler); err != nil {
 		logger.Error(logger.AreaGeneral, "HTTP server startup failed: %v", err)
 		log.Fatalf("Error starting HTTP server: %v", err)
 	}
@@ -213,10 +217,13 @@ func startTLSServers(tlsManager *tlsmanager.TLSManager) {
 		}()
 	} // Start HTTPS server
 	go func() {
+		// Apply security headers middleware
+		handler := middleware.SecurityHeaders(http.DefaultServeMux)
+
 		httpsServer := &http.Server{
 			Addr:      ":" + httpsPort,
 			TLSConfig: tlsManager.GetTLSConfig(),
-			Handler:   nil, // Use default mux with all registered handlers
+			Handler:   handler, // Use middleware wrapped handler
 		}
 
 		logger.Info(logger.AreaSecurity, "Starting HTTPS server on port %s", httpsPort)
