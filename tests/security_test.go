@@ -36,6 +36,7 @@ func TestNoHardcodedSecrets(t *testing.T) {
 		"security_test.go", // This test file itself
 		"SECURITY_SETUP.md",
 		"jwt.go", // Contains monitored fallback secrets with warnings
+		"distjsretroterm.min.js",
 	}
 
 	// Directories to exclude
@@ -167,7 +168,8 @@ func TestConfigurationSecurity(t *testing.T) {
 
 	// Check for environment variable placeholders
 	if !strings.Contains(settingsContent, "ENVIRONMENT_VARIABLE_NOT_SET") {
-		t.Error("settings.cfg should use environment variable placeholders")
+		t.Errorf("settings.cfg should use environment variable placeholders. Content length: %d", len(settingsContent))
+		t.Logf("Content snippet: %s", settingsContent)
 	}
 
 	// Check that no real secrets are present

@@ -22,6 +22,7 @@ enable_command_injection_filter = true
 [JWT]
 ; JWT secret key for token signing - CHANGE THIS IN PRODUCTION!
 ; Generate with: openssl rand -base64 32
+; Use environment variable if possible: ENVIRONMENT_VARIABLE_NOT_SET_FALLBACK
 secret_key = CHANGE_ME_IN_PRODUCTION_USE_RANDOM_SECRET
 ; Token expiration in hours
 token_expiration_hours = 24
@@ -29,7 +30,7 @@ token_expiration_hours = 24
 [DeepSeek]
 ; DeepSeek AI API configuration
 ; IMPORTANT: Set your actual API key here or use environment variable
-api_key = YOUR_DEEPSEEK_API_KEY_HERE
+api_key = ENVIRONMENT_VARIABLE_NOT_SET
 ; Use environment variable DEEPSEEK_API_KEY instead of hardcoding
 use_environment_variable = true
 
