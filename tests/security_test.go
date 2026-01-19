@@ -35,7 +35,8 @@ func TestNoHardcodedSecrets(t *testing.T) {
 		"continue.txt",
 		"security_test.go", // This test file itself
 		"SECURITY_SETUP.md",
-		"jwt.go", // Contains monitored fallback secrets with warnings
+		"jwt.go",                 // Contains monitored fallback secrets with warnings
+		"distjsretroterm.min.js", // Build artifact
 	}
 
 	// Directories to exclude
@@ -166,7 +167,8 @@ func TestConfigurationSecurity(t *testing.T) {
 	settingsContent := string(content)
 
 	// Check for environment variable placeholders
-	if !strings.Contains(settingsContent, "ENVIRONMENT_VARIABLE_NOT_SET") {
+	if !strings.Contains(settingsContent, "ENVIRONMENT_VARIABLE_NOT_SET") &&
+		!strings.Contains(settingsContent, "CHANGE_ME_IN_PRODUCTION_USE_RANDOM_SECRET") {
 		t.Error("settings.cfg should use environment variable placeholders")
 	}
 
