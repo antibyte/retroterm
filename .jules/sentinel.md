@@ -1,0 +1,4 @@
+## 2025-05-27 - False Positives in Security Scanning and Config Validation
+**Vulnerability:** Security tests were failing due to build artifacts (`distjsretroterm.min.js`) being scanned for secrets and `settings.cfg` lacking specific placeholder strings expected by `TestConfigurationSecurity`.
+**Learning:** The custom security scanner in `tests/security_test.go` checks for regex patterns in all files not explicitly excluded, leading to false positives in minified JS. Additionally, the configuration test enforced the presence of "ENVIRONMENT_VARIABLE_NOT_SET" string, which might not be present in valid local configurations, making tests brittle.
+**Prevention:** Explicitly exclude build artifacts (like `.min.js`) from custom security scanners. Ensure configuration tests validate the *properties* of the configuration (e.g., absence of secrets) rather than enforcing specific placeholder strings that may be removed during setup.
