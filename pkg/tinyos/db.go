@@ -306,8 +306,14 @@ func CreateDefaultUsers(db *sql.DB) error {
 	}
 	// Create dyson user if it doesn't exist
 	if count == 0 {
-		// Password is "daniel" (his son's name) - needs to be hashed
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("daniel"), bcrypt.DefaultCost)
+		// Generate random password
+		passwordBytes := make([]byte, 12)
+		if _, err := rand.Read(passwordBytes); err != nil {
+			return fmt.Errorf("failed to generate random password: %w", err)
+		}
+		password := hex.EncodeToString(passwordBytes)
+
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 		if err != nil {
 			return fmt.Errorf("failed to hash dyson password: %w", err)
 		}
@@ -321,7 +327,8 @@ func CreateDefaultUsers(db *sql.DB) error {
 			return fmt.Errorf("failed to create dyson user: %w", err)
 		}
 
-		log.Printf("[INIT] Created default user: dyson")
+		log.Printf("[SECURITY NOTICE] Created default user 'dyson' with password: %s", password)
+		log.Printf("[SECURITY NOTICE] Please change this password immediately!")
 	}
 
 	return nil
