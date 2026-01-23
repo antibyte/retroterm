@@ -1,0 +1,25 @@
+?   	github.com/antibyte/retroterm	[no test files]
+?   	github.com/antibyte/retroterm/cmd/verify_vm	[no test files]
+ok  	github.com/antibyte/retroterm/pkg/auth	(cached)
+?   	github.com/antibyte/retroterm/pkg/board	[no test files]
+ok  	github.com/antibyte/retroterm/pkg/chess	(cached)
+?   	github.com/antibyte/retroterm/pkg/configuration	[no test files]
+?   	github.com/antibyte/retroterm/pkg/editor	[no test files]
+?   	github.com/antibyte/retroterm/pkg/logger	[no test files]
+?   	github.com/antibyte/retroterm/pkg/resources	[no test files]
+?   	github.com/antibyte/retroterm/pkg/shared	[no test files]
+?   	github.com/antibyte/retroterm/pkg/terminal	[no test files]
+DEBUG: Available variables: 'X' 'NAME'
+--- FAIL: TestJIT_OptimizationGain (0.07s)
+    jit_benchmark_test.go:182: Results differ: JIT=200000.000000, Interp=250000.826880
+    jit_benchmark_test.go:191: Interpreter: 70.337108ms (703.37 ns/op)
+    jit_benchmark_test.go:192: JIT:         4.217901ms (42.18 ns/op)
+    jit_benchmark_test.go:193: Speedup:     16.68x
+FAIL
+FAIL	github.com/antibyte/retroterm/pkg/tinybasic	0.116s
+ok  	github.com/antibyte/retroterm/pkg/tinybasic/tests	(cached)
+?   	github.com/antibyte/retroterm/pkg/tinyos	[no test files]
+ok  	github.com/antibyte/retroterm/pkg/tls	(cached)
+?   	github.com/antibyte/retroterm/pkg/virtualfs	[no test files]
+ok  	github.com/antibyte/retroterm/tests	18.555s
+FAIL
