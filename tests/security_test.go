@@ -36,6 +36,7 @@ func TestNoHardcodedSecrets(t *testing.T) {
 		"security_test.go", // This test file itself
 		"SECURITY_SETUP.md",
 		"jwt.go", // Contains monitored fallback secrets with warnings
+		"distjsretroterm.min.js", // Build artifact
 	}
 
 	// Directories to exclude
