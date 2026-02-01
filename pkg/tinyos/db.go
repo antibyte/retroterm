@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -306,8 +307,23 @@ func CreateDefaultUsers(db *sql.DB) error {
 	}
 	// Create dyson user if it doesn't exist
 	if count == 0 {
-		// Password is "daniel" (his son's name) - needs to be hashed
-		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("daniel"), bcrypt.DefaultCost)
+		adminPwd := os.Getenv("INITIAL_ADMIN_PASSWORD")
+		if adminPwd == "" {
+			// Generate a random password
+			b := make([]byte, 12)
+			_, err := rand.Read(b)
+			if err != nil {
+				return fmt.Errorf("failed to generate random password: %w", err)
+			}
+			adminPwd = hex.EncodeToString(b)
+			log.Printf("[INIT] Generated random password for 'dyson': %s", adminPwd)
+			log.Printf("[INIT] IMPORTANT: Save this password, it will not be shown again!")
+		} else {
+			log.Printf("[INIT] Using configured password for 'dyson'")
+		}
+
+		// Password needs to be hashed
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte(adminPwd), bcrypt.DefaultCost)
 		if err != nil {
 			return fmt.Errorf("failed to hash dyson password: %w", err)
 		}
