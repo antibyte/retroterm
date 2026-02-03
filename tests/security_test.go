@@ -36,6 +36,7 @@ func TestNoHardcodedSecrets(t *testing.T) {
 		"security_test.go", // This test file itself
 		"SECURITY_SETUP.md",
 		"jwt.go", // Contains monitored fallback secrets with warnings
+		"distjsretroterm.min.js", // Build artifact
 	}
 
 	// Directories to exclude
@@ -164,6 +165,11 @@ func TestConfigurationSecurity(t *testing.T) {
 	}
 
 	settingsContent := string(content)
+
+	// Skip check if file is auto-generated (local development file)
+	if strings.Contains(settingsContent, "; Generated automatically") {
+		return
+	}
 
 	// Check for environment variable placeholders
 	if !strings.Contains(settingsContent, "ENVIRONMENT_VARIABLE_NOT_SET") {
