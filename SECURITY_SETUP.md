@@ -35,6 +35,12 @@ $jwtSecret = [System.Convert]::ToBase64String([System.Security.Cryptography.Rand
 [Environment]::SetEnvironmentVariable("DEEPSEEK_API_KEY", "your-actual-api-key-here", "User")
 ```
 
+**Initial Admin Password** (optional, for first-time setup):
+```powershell
+[Environment]::SetEnvironmentVariable("INITIAL_ADMIN_PASSWORD", "your-secure-password", "User")
+```
+If not set, a random password will be generated and logged to the console/log file during the first run.
+
 ### 2. Configuration Priority
 
 The application loads secrets in this order:
